@@ -30,7 +30,7 @@ object Main {
     val rdd2 = loadRDD(spark.sqlContext, "/dat2_9.csv")
 
     val thetaJoin = new ThetaJoin(6)
-    val res = thetaJoin.join(rdd1, rdd2, attrIndex1, attrIndex2, "<")
+    val res = thetaJoin.ineq_join(rdd1, rdd2, attrIndex1, attrIndex2, "<")
     println(res.count)*/
 
 
