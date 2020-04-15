@@ -28,8 +28,8 @@ object Main {
     var groupingList = List(0, 1, 3)
     val rollup = new RollupOperator
 
-    val res = rollup.rollup_naive(rdd, groupingList, 8, "AVG")
-    // val res = rollup.rollup(rdd, groupingList, 8, "COUNT")
+    // val res = rollup.rollup_naive(rdd, groupingList, 8, "AVG")
+    val res = rollup.rollup(rdd, groupingList, 8, "AVG")
     // res.foreach(x => println(x))
 
     // use the following code to evaluate the correctness of your results

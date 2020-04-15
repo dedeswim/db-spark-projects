@@ -2,6 +2,9 @@ package rollup
 
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.Row
+import org.apache.spark.sql.execution.CoalesceExec.EmptyRDDWithPartitions
+
+import scala.collection.immutable.Stream.Empty
 
 sealed trait Dataset
 final case class First(f: RDD[Row]) extends Dataset
@@ -20,6 +23,8 @@ class RollupOperator() {
  * You are not allowed to change the definition of this function or the names of the aggregate functions.
  * */
   def rollup(dataset: RDD[Row], groupingAttributeIndexes: List[Int], aggAttributeIndex: Int, agg: String): RDD[(List[Any], Double)] = {
+
+    var number_aggregated: RDD[Int] = dataset.map(_ => 1)
 
     def castField(field: Any): Double = {
       field match {
@@ -52,8 +57,15 @@ class RollupOperator() {
           case First(_) => grouped.map(t => (t._1, t._2.size))
           case Other(_) => grouped.map(t => (t._1, t._2.sum))
         }
-        case "AVG" => grouped.map(t => (t._1, t._2.sum / t._2.size))
+        case "AVG" => aggregated_dataset match {
+          case First(_) => grouped.map(t => (t._1, t._2.sum / t._2.size))
+          case Other(_) => grouped
+            .zip(number_aggregated)
+            .map(t => (t._1._1, t._1._2.sum * t._2 / t._1._2.size))
+        }
       }
+
+      number_aggregated = grouped.map(t => t._2.size)
 
       aggregated
     }
