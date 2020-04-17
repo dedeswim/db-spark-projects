@@ -112,11 +112,12 @@ class RollupOperator() extends Serializable {
       (t._1, average, t._2.size)
     }
 
+
     agg match {
       case "SUM" => grouped.map(t => (t._1, t._2.map(_._1).sum, t._2.size))
       case "MIN" => grouped.map(t => (t._1, t._2.map(_._1).min, t._2.size))
       case "MAX" => grouped.map(t => (t._1, t._2.map(_._1).max, t._2.size))
-      case "COUNT" => grouped.map(t => (t._1, t._2.map(_._2).sum, t._2.size))
+      case "COUNT" => grouped.map(t => (t._1, t._2.map(_._2).sum, t._2.map(_._2).sum))
       case "AVG" => grouped.map(avg)
     }
   }
