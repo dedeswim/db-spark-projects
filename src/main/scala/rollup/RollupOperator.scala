@@ -109,7 +109,7 @@ class RollupOperator() extends Serializable {
       val denominator = t._2.map(_._2).sum
       val average = weightedSum / denominator
 
-      (t._1, average, t._2.size)
+      (t._1, average, t._2.map(_._2).sum)
     }
 
 
