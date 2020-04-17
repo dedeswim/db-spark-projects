@@ -9,31 +9,11 @@ final case class First(f: RDD[Row]) extends Dataset
 
 final case class Other(f: RDD[(List[Any], Double)]) extends Dataset
 
-class RollupOperator() {
+class RollupOperator() extends Serializable {
 
-  /*
- * This method gets as input one dataset, the indexes of the grouping attributes of the rollup (ROLLUP clause)
- * the index of the attribute on which the aggregation is performed
- * and the aggregate function (it has to be one of "COUNT", "SUM", "MIN", "MAX", "AVG")
- * and returns an RDD with the result in the form of <key = List[Any], value = Double> pairs.
- * The key is used to uniquely identify a group that corresponds to a certain combination of attribute values.
- * You are free to do that following your own naming convention.
- * The value is the aggregation result.
- * You are not allowed to change the definition of this function or the names of the aggregate functions.
- * */
   def rollup(dataset: RDD[Row], groupingAttributeIndexes: List[Int], aggAttributeIndex: Int, agg: String): RDD[(List[Any], Double)] = {
 
     var number_aggregated: RDD[Int] = dataset.map(_ => 1)
-
-    def castField(field: Any): Double = {
-      field match {
-        case f: Int => f.toDouble
-        case f: Double => f
-        case f: Long => f.toDouble
-        case f: Float => f.toDouble
-        case _ => throw new IllegalArgumentException("The field is not numeric.")
-      }
-    }
 
     def rollup_indices(indices: List[Int], aggregated_dataset: Dataset): RDD[(List[Any], Double)] = {
 
@@ -53,12 +33,8 @@ class RollupOperator() {
         case "SUM" => grouped.map(t => (t._1, t._2.map(_._1).sum))
         case "MIN" => grouped.map(t => (t._1, t._2.map(_._1).min))
         case "MAX" => grouped.map(t => (t._1, t._2.map(_._1).max))
-        case "COUNT" => aggregated_dataset match {
-          case First(_) => grouped.map(t => (t._1, t._2.size))
-          case Other(_) => grouped.map(t => (t._1, t._2.map(_._1).sum))
-        }
-        case "AVG" => grouped
-          .map(t => (t._1, t._2.map(t_i => t_i._1 * t_i._2).sum / t._2.map(_._2).sum))
+        case "COUNT" => grouped.map(t => (t._1, t._2.map(_._2).sum))
+        case "AVG" => grouped.map(t => (t._1, t._2.map(t_i => t_i._1 * t_i._2).sum / t._2.map(_._2).sum))
       }
 
       number_aggregated = grouped.map(t => t._2.size)
@@ -82,17 +58,26 @@ class RollupOperator() {
     total
   }
 
-  def rollup_naive(dataset: RDD[Row], groupingAttributeIndexes: List[Int], aggAttributeIndex: Int, agg: String): RDD[(List[Any], Double)] = {
+  /*
+ * This method gets as input one dataset, the indexes of the grouping attributes of the rollup (ROLLUP clause)
+ * the index of the attribute on which the aggregation is performed
+ * and the aggregate function (it has to be one of "COUNT", "SUM", "MIN", "MAX", "AVG")
+ * and returns an RDD with the result in the form of <key = List[Any], value = Double> pairs.
+ * The key is used to uniquely identify a group that corresponds to a certain combination of attribute values.
+ * You are free to do that following your own naming convention.
+ * The value is the aggregation result.
+ * You are not allowed to change the definition of this function or the names of the aggregate functions.
+ * */
 
-    def castField(field: Any): Double = {
-      field match {
-        case f: Int => f.toDouble
-        case f: Double => f
-        case f: Long => f.toDouble
-        case f: Float => f.toDouble
-        case _ => throw new IllegalArgumentException("The field is not numeric.")
-      }
-    }
+  private def castField: Any => Double = {
+    case f: Int => f.toDouble
+    case f: Double => f
+    case f: Long => f.toDouble
+    case f: Float => f.toDouble
+    case _ => throw new IllegalArgumentException("The field is not numeric.")
+  }
+
+  def rollup_naive(dataset: RDD[Row], groupingAttributeIndexes: List[Int], aggAttributeIndex: Int, agg: String): RDD[(List[Any], Double)] = {
 
     def rollup_indices(indices: List[Int]): RDD[(List[Any], Double)] = {
 
