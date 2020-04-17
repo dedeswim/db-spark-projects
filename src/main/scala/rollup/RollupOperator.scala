@@ -7,15 +7,13 @@ sealed trait Dataset
 
 final case class First(f: RDD[Row]) extends Dataset
 
-final case class Other(f: RDD[(List[Any], Double)]) extends Dataset
+final case class Other(f: RDD[(List[Any], Double, Int)]) extends Dataset
 
 class RollupOperator() extends Serializable {
 
   def rollup(dataset: RDD[Row], groupingAttributeIndexes: List[Int], aggAttributeIndex: Int, agg: String): RDD[(List[Any], Double)] = {
 
-    var number_aggregated: RDD[Int] = dataset.map(_ => 1)
-
-    def rollup_indices(indices: List[Int], aggregated_dataset: Dataset): RDD[(List[Any], Double)] = {
+    def rollup_indices(indices: List[Int], aggregated_dataset: Dataset): RDD[(List[Any], Double, Int)] = {
 
       val grouped: RDD[(List[Any], Iterable[(Double, Int)])] = aggregated_dataset match {
         case First(rows_rdd) => rows_rdd
@@ -24,20 +22,17 @@ class RollupOperator() extends Serializable {
           .map(t => (t._1, t._2.map(castField).zip(Iterable(t._2.size))))
 
         case Other(aggregated_rdd) => aggregated_rdd
-          .zip(number_aggregated)
-          .groupBy(t => indices.map(i => t._1._1(i)))
-          .map(t => (t._1, t._2.map(_._1._2).zip(t._2.map(_._2))))
+          .groupBy(t => indices.map(i => t._1(i)))
+          .map(t => (t._1, t._2.map(_._2).zip(t._2.map(_._3))))
       }
 
-      val aggregated: RDD[(List[Any], Double)] = agg match {
-        case "SUM" => grouped.map(t => (t._1, t._2.map(_._1).sum))
-        case "MIN" => grouped.map(t => (t._1, t._2.map(_._1).min))
-        case "MAX" => grouped.map(t => (t._1, t._2.map(_._1).max))
-        case "COUNT" => grouped.map(t => (t._1, t._2.map(_._2).sum))
-        case "AVG" => grouped.map(t => (t._1, t._2.map(t_i => t_i._1 * t_i._2).sum / t._2.map(_._2).sum))
+      val aggregated: RDD[(List[Any], Double, Int)] = agg match {
+        case "SUM" => grouped.map(t => (t._1, t._2.map(_._1).sum, t._2.size))
+        case "MIN" => grouped.map(t => (t._1, t._2.map(_._1).min, t._2.size))
+        case "MAX" => grouped.map(t => (t._1, t._2.map(_._1).max, t._2.size))
+        case "COUNT" => grouped.map(t => (t._1, t._2.map(_._2).sum, t._2.size))
+        case "AVG" => grouped.map(t => (t._1, t._2.map(t_i => t_i._1 * t_i._2).sum / t._2.map(_._2).sum, t._2.size))
       }
-
-      number_aggregated = grouped.map(t => t._2.size)
 
       aggregated
     }
@@ -55,7 +50,7 @@ class RollupOperator() extends Serializable {
 
     }
 
-    total
+    total.map(t => (t._1, t._2))
   }
 
   /*
