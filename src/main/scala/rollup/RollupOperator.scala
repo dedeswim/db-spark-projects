@@ -2,12 +2,11 @@ package rollup
 
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.Row
-import org.apache.spark.sql.execution.CoalesceExec.EmptyRDDWithPartitions
-
-import scala.collection.immutable.Stream.Empty
 
 sealed trait Dataset
+
 final case class First(f: RDD[Row]) extends Dataset
+
 final case class Other(f: RDD[(List[Any], Double)]) extends Dataset
 
 class RollupOperator() {
@@ -38,31 +37,28 @@ class RollupOperator() {
 
     def rollup_indices(indices: List[Int], aggregated_dataset: Dataset): RDD[(List[Any], Double)] = {
 
-      val grouped: RDD[(List[Any], Iterable[Double])] = aggregated_dataset match {
+      val grouped: RDD[(List[Any], Iterable[(Double, Int)])] = aggregated_dataset match {
         case First(rows_rdd) => rows_rdd
           .groupBy(row => indices.map(i => row(i)))
           .map(t => (t._1, t._2.map(r => r.get(aggAttributeIndex))))
-          .map(t => (t._1, t._2.map(castField)))
+          .map(t => (t._1, t._2.map(castField).zip(Iterable(t._2.size))))
 
         case Other(aggregated_rdd) => aggregated_rdd
-            .groupBy(t => indices.map(i => t._1(i)))
-            .map(t => (t._1, t._2.map(_._2)))
+          .zip(number_aggregated)
+          .groupBy(t => indices.map(i => t._1._1(i)))
+          .map(t => (t._1, t._2.map(_._1._2).zip(t._2.map(_._2))))
       }
 
       val aggregated: RDD[(List[Any], Double)] = agg match {
-        case "SUM" => grouped.map(t => (t._1, t._2.sum))
-        case "MIN" => grouped.map(t => (t._1, t._2.min))
-        case "MAX" => grouped.map(t => (t._1, t._2.max))
+        case "SUM" => grouped.map(t => (t._1, t._2.map(_._1).sum))
+        case "MIN" => grouped.map(t => (t._1, t._2.map(_._1).min))
+        case "MAX" => grouped.map(t => (t._1, t._2.map(_._1).max))
         case "COUNT" => aggregated_dataset match {
           case First(_) => grouped.map(t => (t._1, t._2.size))
-          case Other(_) => grouped.map(t => (t._1, t._2.sum))
+          case Other(_) => grouped.map(t => (t._1, t._2.map(_._1).sum))
         }
-        case "AVG" => aggregated_dataset match {
-          case First(_) => grouped.map(t => (t._1, t._2.sum / t._2.size))
-          case Other(_) => grouped
-            .zip(number_aggregated)
-            .map(t => (t._1._1, t._1._2.sum * t._2 / t._1._2.size))
-        }
+        case "AVG" => grouped
+          .map(t => (t._1, t._2.map(t_i => t_i._1 * t_i._2).sum / t._2.map(_._2).sum))
       }
 
       number_aggregated = grouped.map(t => t._2.size)
