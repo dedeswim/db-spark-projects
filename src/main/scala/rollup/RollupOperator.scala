@@ -150,14 +150,14 @@ class RollupOperator() extends Serializable {
 
   /** Computes an aggregate on an `RDD[(List[Any], Iterable[(Double, Int)])]`, given aggregate `agg`
    *
-   * @param agg     the aggregate to be computed, on of "SUM", "MIN", "MAX", "COUNT", "AVG".
+   * @param agg     the aggregate to be computed, one of "SUM", "MIN", "MAX", "COUNT", "AVG".
    * @param grouped the RDD to be aggregated.
    * @return the aggregated RDD.
    * @throws IllegalArgumentException if the aggregate is not one of those mentioned above.
    **/
   private def computeAggregate(agg: String, grouped: RDD[(List[Any], Iterable[(Double, Int)])]): RDD[(List[Any], Double, Int)] = {
 
-    /** Computes the weighted  of a tuple containing the group key and a list of numbers and their weights.
+    /** Computes the weighted average of a tuple containing the group key and a list of numbers and their weights.
      *
      * @param t the Tuple on which compute the average.
      * @return a `Tuple3` containing the group key, the average and the weight for the group in the next recursion.
