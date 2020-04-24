@@ -61,6 +61,7 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
 //    println(M.getNumPartitions)
 //    var p = M.glom().collect()
 //    p.foreach(println)
+
     val joined: RDD[(Int, Int)] = M.mapPartitions(t => reducePartition(t))
     ???
   }
@@ -99,6 +100,11 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
   }
 
   def reducePartition(tuples: Iterator[(Int, (Int, String))]): Iterator[(Int, Int)] = {
+    val tupTot = tuples.partition(t => t._2._1 == "S")
+    val tupS = tupTot._1.map(t => t._2._1)
+    val tupR = tupTot._2.map(t => t._2._1)
+
+    // E ora che join algorithm ci va qua????
     ???
   }
 }
