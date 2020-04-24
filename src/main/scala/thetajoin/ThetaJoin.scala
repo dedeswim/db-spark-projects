@@ -62,8 +62,9 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
 //    var p = M.glom().collect()
 //    p.foreach(println)
 
-    val joined: RDD[(Int, Int)] = M.mapPartitions(t => reducePartition(t))
-    ???
+    val joined: RDD[(Int, Int)] = M.mapPartitions(t => reducePartition(t, condition))
+
+    joined
   }
 
   def getBucket(attr: Int, quantiles: Array[Int]): Int = {
@@ -99,12 +100,19 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
     def getPartition(key: Any): Int = key.asInstanceOf[Int]
   }
 
-  def reducePartition(tuples: Iterator[(Int, (Int, String))]): Iterator[(Int, Int)] = {
-    val tupTot = tuples.partition(t => t._2._1 == "S")
-    val tupS = tupTot._1.map(t => t._2._1)
-    val tupR = tupTot._2.map(t => t._2._1)
 
-    // E ora che join algorithm ci va qua????
-    ???
+  def reducePartition(tuples: Iterator[(Int, (Int, String))], condition:String): Iterator[(Int, Int)] = {
+    val tupTot = tuples.toList.partition(t => t._2._2 == "R")
+    val tupR = tupTot._1.map(t => t._2._1)
+    val tupS = tupTot._2.map(t => t._2._1)
+
+    val cross = tupR.flatMap(x => tupS.map(y => (x, y)))
+
+    condition match {
+      case "<" => cross.filter(c => c._1 < c._2).toIterator
+      case ">" => cross.filter(c => c._1 > c._2).toIterator
+      case _ => throw new IllegalArgumentException("Wrong condition selected")
+    }
+
   }
 }
