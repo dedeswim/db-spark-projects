@@ -36,22 +36,32 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
       //.map(t => (t._1, getRowOrCols(t._2, cR, R)))
       .map(t => (t._1, getRegions(t._2, cS, "R")))
 
-    val mapR: RDD[(Int, Iterable[Int])] = regionsR
+    val mapR: RDD[(Int, (Int, String))] = regionsR
       .flatMap { case (attr, regions) => regions.map((attr, _)) }
-      .groupBy(t => t._2)
-      .map(t => (t._1, t._2.map(v => v._1)))
+      .map(t => (t._2, (t._1, "R")))
 
     val regionsS: RDD[(Int, IndexedSeq[Int])] = S
       .map(r => (r, getBucket(r, quantilesS)))
       //.map(t => (t._1, getRowOrCols(t._2, cR, R)))
       .map(t => (t._1, getRegions(t._2, cS, "S")))
 
-    val mapS: RDD[(Int, Iterable[Int])] = regionsS
+    val mapS: RDD[(Int, (Int, String))] = regionsS
       .flatMap { case (attr, regions) => regions.map((attr, _)) }
-      .groupBy(t => t._2)
-      .map(t => (t._1, t._2.map(v => v._1)))
+      .map(t => (t._2, (t._1, "S")))
 
+//    val mapR: RDD[(Int, Int)] = regionsR
+//      .flatMap { case (attr, regions) => regions.map((attr, _)) }
+//
+//    val mapS: RDD[(Int, Int)] = regionsS
+//      .flatMap { case (attr, regions) => regions.map((attr, _)) }
 
+    val M: RDD[(Int, (Int, String))] = mapR.union(mapS)
+        .partitionBy(new BucketPartitioner(partitions))
+
+//    println(M.getNumPartitions)
+//    var p = M.glom().collect()
+//    p.foreach(println)
+    val joined: RDD[(Int, Int)] = M.mapPartitions(t => reducePartition(t))
     ???
   }
 
@@ -82,5 +92,13 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
       case "R" => bucket*cS until (bucket*cS + cS)
       case "S" => bucket until partitions by cS
     }
+  }
+
+  class BucketPartitioner(override val numPartitions: Int) extends Partitioner {
+    def getPartition(key: Any): Int = key.asInstanceOf[Int]
+  }
+
+  def reducePartition(tuples: Iterator[(Int, (Int, String))]): Iterator[(Int, Int)] = {
+    ???
   }
 }
