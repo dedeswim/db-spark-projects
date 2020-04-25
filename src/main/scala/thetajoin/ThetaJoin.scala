@@ -29,9 +29,9 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
     val quantilesR = R.takeSample(withReplacement = false, cR - 1).sorted
     val quantilesS = S.takeSample(withReplacement = false, cS - 1).sorted
 
-    val sortedR = R.collect.sorted
-    val sortedS = S.collect.sorted
-    val rQuantilesIndices = 0 to sortedR.length by (sortedR.length / cR)
+    // val sortedR = R.collect.sorted
+    // val sortedS = S.collect.sorted
+    // val rQuantilesIndices = 0 to sortedR.length by (sortedR.length / cR)
 
     println(s"R quantiles: ${quantilesR.mkString(", ")}")
     println(s"S quantiles: ${quantilesS.mkString(", ")}")
@@ -73,33 +73,36 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
     //    var p = M.glom().collect()
     //    p.foreach(println)
 
-    val joined: RDD[(Int, Int)] = M.mapPartitions(t => reducePartition(t, condition))
+    val joined: RDD[(Int, Int)] = M.mapPartitionsWithIndex((i, t) => reducePartition(t, condition, i))
 
     joined
   }
 
-  private def getBucket(attr: Int, quantiles: Array[Int]): Int = {
-    var bucket = 0
-    var buckets: List[Int] = Nil
-    var prev_v = 0
-    for ((v, i) <- quantiles.zipWithIndex) {
-      if (attr >= v) {
-        bucket = i + 1
-        // return bucket
-        if (v == prev_v) {
-          buckets :+= bucket
-        }
-        else if (buckets == Nil) {
-          return bucket
-        } else {
-          val rnd = new scala.util.Random
-          return buckets(rnd.nextInt(buckets.size))
-        }
-
+  @scala.annotation.tailrec
+  private def findQuantile(attr: Int, keys: Array[Int]): Int = {
+    if (keys.length == 1) {
+      keys(0)
+    } else {
+      keys(keys.length / 2) match {
+        case quantile if quantile == attr => keys(keys.length / 2)
+        case quantile if attr > quantile => findQuantile(attr, keys.takeRight(keys.length / 2))
+        case quantile if attr < quantile => findQuantile(attr, keys.take(keys.length / 2))
       }
-      prev_v = v
     }
-    bucket
+  }
+
+  private def getBucket(attr: Int, quantiles: Array[Int]): Int = {
+    val groupedQuantiles =
+      quantiles
+        .zipWithIndex
+        .groupBy(_._1)
+        .map { case (quantile, tuples) => (quantile, tuples.map(_._2)) }
+
+    val quantile = findQuantile(attr, groupedQuantiles.keys.toArray)
+    val quantileBuckets = groupedQuantiles(quantile)
+
+    val rnd = new scala.util.Random
+    quantileBuckets(rnd.nextInt(quantileBuckets.length))
   }
 
   private def getRegions(bucket: Int, cS: Int, relation: String): IndexedSeq[Int] = {
@@ -109,11 +112,11 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
     }
   }
 
-  private def reducePartition(tuples: Iterator[(Int, (Int, String))], condition: String): Iterator[(Int, Int)] = {
+  private def reducePartition(tuples: Iterator[(Int, (Int, String))], condition: String, partitionIndex: Int): Iterator[(Int, Int)] = {
 
     val tupTot = tuples.toList.partition(t => t._2._2 == "R")
 
-    println(s"Input tuples in reducer: ${tupTot._1.size + tupTot._2.size}")
+    println(s"Input reducer $partitionIndex: ${tupTot._1.size + tupTot._2.size}")
 
     val tupR = tupTot._1.map(t => t._2._1)
     val tupS = tupTot._2.map(t => t._2._1)
@@ -126,7 +129,7 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
       case _ => throw new IllegalArgumentException("Wrong condition selected")
     }
 
-    println(s"Output tuples in reducer: ${result.size}")
+    println(s"Output reducer $partitionIndex: ${result.size}")
 
     result.toIterator
 
