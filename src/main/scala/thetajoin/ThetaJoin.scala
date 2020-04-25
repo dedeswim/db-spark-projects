@@ -9,13 +9,13 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
   val logger = LoggerFactory.getLogger("ThetaJoin")
 
   /*
-  this method takes as input two datasets (dat1, dat2) and returns the pairs of join keys that satisfy the theta join condition.
-  attrIndex1: is the index of the join key of dat1
-  attrIndex2: is the index of the join key of dat2
-  condition: Is the join condition. Assume only "<", ">" will be given as input
-  Assume condition only on integer fields.
-  Returns and RDD[(Int, Int)]: projects only the join keys.
-   */
+    this method takes as input two datasets (dat1, dat2) and returns the pairs of join keys that satisfy the theta join condition.
+    attrIndex1: is the index of the join key of dat1
+    attrIndex2: is the index of the join key of dat2
+    condition: Is the join condition. Assume only "<", ">" will be given as input
+    Assume condition only on integer fields.
+    Returns and RDD[(Int, Int)]: projects only the join keys.
+     */
   def ineq_join(dat1: RDD[Row], dat2: RDD[Row], attrIndex1: Int, attrIndex2: Int, condition: String): RDD[(Int, Int)] = {
 
     val R = dat1.map(_ (attrIndex1).asInstanceOf[Int])
@@ -26,15 +26,23 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
     val cR = (cardR / scala.math.sqrt(cardS * cardR / partitions)).toInt
     val cS = (cardS / scala.math.sqrt(cardS * cardR / partitions)).toInt
 
-    val quantilesR = R.takeSample(withReplacement = false, cR - 1).sorted
-    val quantilesS = S.takeSample(withReplacement = false, cS - 1).sorted
+    val samplesFactor = 10
+    val rSamples = R.takeSample(withReplacement = false, (cR - 1) * samplesFactor).sorted
+    val sSamples = S.takeSample(withReplacement = false, (cS - 1) * samplesFactor).sorted
 
-    // val sortedR = R.collect.sorted
-    // val sortedS = S.collect.sorted
-    // val rQuantilesIndices = 0 to sortedR.length by (sortedR.length / cR)
+    val quantilesR = getQuantiles(rSamples, cR - 1)
+    val quantilesS = getQuantiles(sSamples, cS - 1)
 
-    println(s"R quantiles: ${quantilesR.mkString(", ")}")
-    println(s"S quantiles: ${quantilesS.mkString(", ")}")
+    val sortedR = R.collect.sorted
+    val sortedS = S.collect.sorted
+    val trueRQuantiles = getQuantiles(sortedR, cR - 1)
+    val trueSQuantiles = getQuantiles(sortedS, cS - 1)
+
+    println(s"R estimated quantiles: ${quantilesR.mkString(", ")}")
+    println(s"R true quantiles: ${trueRQuantiles.mkString(", ")}")
+
+    println(s"S estimated quantiles: ${quantilesS.mkString(", ")}")
+    println(s"S true quantiles: ${trueSQuantiles.mkString(", ")}")
 
     val regionsR: RDD[(Int, IndexedSeq[Int])] =
       R
@@ -76,6 +84,17 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
     val joined: RDD[(Int, Int)] = M.mapPartitionsWithIndex((i, t) => reducePartition(t, condition, i))
 
     joined
+  }
+
+  private def getQuantiles(sortedArray: Array[Int], nIndices: Int): Array[Int] = {
+    // Get the span of each quantile
+    val quantileSpan = sortedArray.length / (nIndices + 1) + 1
+
+    // Get the index of each quantile
+    val indices = (1 to nIndices).map(_ * quantileSpan - 1)
+
+    // Get the quantiles
+    indices.map(sortedArray).toArray
   }
 
   @scala.annotation.tailrec
