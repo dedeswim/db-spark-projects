@@ -21,65 +21,53 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
     val R = dat1.map(_ (attrIndex1).asInstanceOf[Int])
     val S = dat2.map(_ (attrIndex2).asInstanceOf[Int])
 
-    val cardR = dat1.count()
-    val cardS = dat2.count()
+    val cardR = dat1.count
+    val cardS = dat2.count
     val cR = (cardR / scala.math.sqrt(cardS * cardR / partitions)).toInt
     val cS = (cardS / scala.math.sqrt(cardS * cardR / partitions)).toInt
 
-    val samplesFactor = 10
+    val samplesFactor = 100
     val rSamples = R.takeSample(withReplacement = false, (cR - 1) * samplesFactor).sorted
     val sSamples = S.takeSample(withReplacement = false, (cS - 1) * samplesFactor).sorted
 
     val quantilesR = getQuantiles(rSamples, cR - 1)
     val quantilesS = getQuantiles(sSamples, cS - 1)
 
-    val sortedR = R.collect.sorted
-    val sortedS = S.collect.sorted
-    val trueRQuantiles = getQuantiles(sortedR, cR - 1)
-    val trueSQuantiles = getQuantiles(sortedS, cS - 1)
+    // val sortedR = R.collect.sorted
+    // val sortedS = S.collect.sorted
+    // val quantilesR = getQuantiles(sortedR, cR - 1)
+    // val quantilesS = getQuantiles(sortedS, cS - 1)
 
     println(s"R estimated quantiles: ${quantilesR.mkString(", ")}")
-    println(s"R true quantiles: ${trueRQuantiles.mkString(", ")}")
+    // println(s"R true quantiles: ${trueRQuantiles.mkString(", ")}")
 
     println(s"S estimated quantiles: ${quantilesS.mkString(", ")}")
-    println(s"S true quantiles: ${trueSQuantiles.mkString(", ")}")
+    // println(s"S true quantiles: ${trueSQuantiles.mkString(", ")}")
 
     val regionsR: RDD[(Int, IndexedSeq[Int])] =
       R
-        .map(r => (r, getBucket(r, quantilesR)))
-        //.map(t => (t._1, getRowOrCols(t._2, cR, R)))
-        .map(t => (t._1, getRegions(t._2, cS, "R")))
+        .map(value => (value, getBucket(value, quantilesR)))
+        .map { case (value, bucket) => (value, getRegions(bucket, cS, "R")) }
 
     val mapR: RDD[(Int, (Int, String))] =
       regionsR
-        .flatMap { case (attr, regions) => regions.map((attr, _)) }
-        .map(t => (t._2, (t._1, "R")))
+        .flatMap { case (value, regions) => regions.map((value, _)) }
+        .map { case (value, region) => (region, (value, "R")) }
 
     val regionsS: RDD[(Int, IndexedSeq[Int])] =
       S
-        .map(r => (r, getBucket(r, quantilesS)))
-        //.map(t => (t._1, getRowOrCols(t._2, cR, R)))
-        .map(t => (t._1, getRegions(t._2, cS, "S")))
+        .map(value => (value, getBucket(value, quantilesS)))
+        .map { case (value, bucket) => (value, getRegions(bucket, cS, "S")) }
 
     val mapS: RDD[(Int, (Int, String))] =
       regionsS
-        .flatMap { case (attr, regions) => regions.map((attr, _)) }
-        .map(t => (t._2, (t._1, "S")))
-
-    //    val mapR: RDD[(Int, Int)] = regionsR
-    //      .flatMap { case (attr, regions) => regions.map((attr, _)) }
-    //
-    //    val mapS: RDD[(Int, Int)] = regionsS
-    //      .flatMap { case (attr, regions) => regions.map((attr, _)) }
+        .flatMap { case (value, regions) => regions.map((value, _)) }
+        .map { case (value, region) => (region, (value, "S")) }
 
     val M: RDD[(Int, (Int, String))] =
       mapR
         .union(mapS)
         .partitionBy(new BucketPartitioner(partitions))
-
-    //    println(M.getNumPartitions)
-    //    var p = M.glom().collect()
-    //    p.foreach(println)
 
     val joined: RDD[(Int, Int)] = M.mapPartitionsWithIndex((i, t) => reducePartition(t, condition, i))
 
