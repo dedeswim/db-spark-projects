@@ -194,6 +194,13 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
     bucket
   }
 
+  /** Gets the regions intersected by the given bucket.
+   *
+   * @param bucket   the index of the bucket.
+   * @param cS       the number of horizontal buckets.
+   * @param relation the relation of the bucket. Must be one of `"R"` or `"S"`
+   * @return the array with the intersected regions.
+   */
   private def getRegions(bucket: Int, cS: Int, relation: String): IndexedSeq[Int] = {
     relation match {
       case "R" => bucket * cS until (bucket * cS + cS)
@@ -201,36 +208,56 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
     }
   }
 
-  private def reducePartition(tuples: Iterator[(Int, (Int, String))], condition: String): Iterator[(Int, Int)] = {
+  /** Reduces the partition computing the given join on the input tuples.
+   *
+   * @param tuples    the tuples on which the join has to be computed.
+   * @param condition the join condition.
+   * @param verbose   whether debugging info should be printed
+   * @return the iterator containing the joined tuples.
+   * @throws IllegalArgumentException if the given condition is not one of ">" or "<".
+   */
+  private def reducePartition(tuples: Iterator[(Int, (Int, String))], condition: String, verbose: Boolean = true): Iterator[(Int, Int)] = {
     val tuplesSeq = tuples.toIndexedSeq
 
+    // Return if the partition has no input.
+    // TODO: check if this is really necessary, it shouldn't
     if (tuplesSeq.isEmpty) {
       return Iterator[(Int, Int)]()
     }
 
+    // Split the tuples between those in R and those in S
     val tupTot = tuplesSeq.partition(t => t._2._2 == "R")
 
-    val partitionIndex = tuplesSeq(0)._1
+    // Get the value to be joined from each relation
+    val getValue: ((Int, (Int, String))) => Int = {
+      case (_, (value, _)) => value
+    }
+    val tupR = tupTot._1.map(getValue)
+    val tupS = tupTot._2.map(getValue)
 
-    println(s"Input reducer $partitionIndex: ${tupTot._1.size + tupTot._2.size}")
-
-    val tupR = tupTot._1.map(t => t._2._1)
-    val tupS = tupTot._2.map(t => t._2._1)
-
+    // Compute the cross product among the relations
     val cross = tupR.flatMap(x => tupS.map(y => (x, y)))
 
+    // Filter the cross product according to the join condition.
     val result = condition match {
       case "<" => cross.filter(c => c._1 < c._2)
       case ">" => cross.filter(c => c._1 > c._2)
       case _ => throw new IllegalArgumentException("Wrong condition selected")
     }
 
-    println(s"Output reducer $partitionIndex: ${result.size}")
+    if (verbose) {
+      val partitionIndex = tuplesSeq(0)._1
+      println(s"Input reducer $partitionIndex: ${tupTot._1.size + tupTot._2.size}")
+      println(s"Output reducer $partitionIndex: ${result.size}")
+    }
 
     result.toIterator
-
   }
 
+  /** Partitions an RDD based on the given bucket,
+   *
+   * @param numPartitions the number of available partitions.
+   */
   class BucketPartitioner(override val numPartitions: Int) extends Partitioner {
     def getPartition(key: Any): Int = key.asInstanceOf[Int]
   }
