@@ -46,7 +46,10 @@ object Main {
       .map(x => (x._1(attrIndex1).asInstanceOf[Int], x._2(attrIndex2).asInstanceOf[Int]))
     // cartesianRes.foreach(x => println(x))
 
-    // assert(res.sortBy(x => (x._1, x._2)).collect().toList.equals(cartesianRes.sortBy(x => (x._1, x._2)).collect.toList))
+    //assert(res.sortBy(x => (x._1, x._2)).collect().toList.equals(cartesianRes.sortBy(x => (x._1, x._2)).collect.toList))
+
+    assert(res.subtract(cartesianRes).count() == 0)
+    assert(cartesianRes.subtract(res).count() == 0)
   }
 
   def loadRDD(sqlContext: SQLContext, file: String): RDD[Row] = {

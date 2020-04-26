@@ -255,6 +255,10 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
       case ">" => (tupR.filter(_ > sMin), tupS)
     }
 
+    if (filteredR.isEmpty | filteredS.isEmpty) {
+      return Iterator[(Int, Int)]()
+    }
+
     val (filteredRMax, filteredRMin) = (filteredR.max, filteredR.min)
     val (filteredSMax, filteredSMin) = (filteredS.max, filteredS.min)
 

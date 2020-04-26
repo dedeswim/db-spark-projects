@@ -19,7 +19,7 @@ object Main {
       .option("header", "true")
       .option("inferSchema", "true")
       .option("delimiter", "|")
-      .load("/user/cs422/lineorder_small.tbl")
+      .load("/user/cs422/lineorder_big.tbl")
 
     val rdd = df.rdd
 
