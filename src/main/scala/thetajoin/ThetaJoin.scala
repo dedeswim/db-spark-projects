@@ -30,8 +30,8 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
 
     // Take sample to compute the quantiles
     val samplesFactor = 100
-    val rSamples = R.takeSample(withReplacement = false, (cR - 1) * samplesFactor).sorted
-    val sSamples = S.takeSample(withReplacement = false, (cS - 1) * samplesFactor).sorted
+    val rSamples = R.takeSample(withReplacement = false, (cR - 1) * samplesFactor, seed = 42).sorted
+    val sSamples = S.takeSample(withReplacement = false, (cS - 1) * samplesFactor, seed = 0).sorted
 
     // Compute estimated k-quantiles separators
     val rQuantilesSeparators = getQuantiles(rSamples, cR - 1)
@@ -72,8 +72,13 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
       case (partition, _) => !partitionsToPrune.contains(partition)
     }
 
-    val partitionsToKeep = (0 until partitions).toSet.diff(partitionsToPrune).toArray
+    val partitionsToKeep = (0 until partitions).toSet.diff(partitionsToPrune).toIndexedSeq.sorted
     val newPartitionsMap = partitionsToKeep.zipWithIndex.toMap
+
+    val debugM = mapR
+      .union(mapS)
+      .filter(isToPrune)
+      .map { case (partition, tuple) => (newPartitionsMap(partition), tuple) }
 
     // Create unique RDD for R and S, and partition, removing those to prune
     val M: RDD[(Int, (Int, String))] =
@@ -89,6 +94,14 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
     joined
   }
 
+  /** Computes the cartesian product between two arrays.
+   *
+   * @param r the right array.
+   * @param s the left array.
+   * @return the computed cross product
+   */
+  def cartesianProduct(r: IndexedSeq[Int], s: IndexedSeq[Int]): IndexedSeq[(Int, Int)] = r.flatMap(r => s.map(s => (r, s)))
+
   /** Gets which partitions are not necessary to be reduced, since the join condition is never satisfied for them.
    *
    * @param quantilesR the k-quantiles delimiters for R
@@ -96,14 +109,14 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
    * @param condition  the join condition
    * @return the indices of the partitions that do not need to be reduced and can be pruned.
    */
-  def getPartitionsToPrune(quantilesR: Array[Int], quantilesS: Array[Int], condition: String): Array[Int] = {
+  def getPartitionsToPrune(quantilesR: IndexedSeq[Int], quantilesS: IndexedSeq[Int], condition: String): IndexedSeq[Int] = {
     // Create an array of tuple with the lower bounds of the one which must be greater, and the upperbounds of the
     // one which must be lower. -Int.MaxValue is prepended to the lower one to be the lowest value and take always the
     // 0th bucket, the opposite happens with the higher one. Since we don't know what's the minimum value of the
     // relation that must be larger, nor the maximum value of the relation that must be smaller.
     val upperLowerBounds = condition match {
-      case "<" => (Int.MinValue +: quantilesR).flatMap(r => (quantilesS :+ Int.MaxValue).map(s => (r, s)))
-      case ">" => (quantilesR :+ Int.MaxValue).flatMap(r => (Int.MinValue +: quantilesS).map(s => (r, s)))
+      case "<" => cartesianProduct(Int.MinValue +: quantilesR, quantilesS :+ Int.MaxValue)
+      case ">" => cartesianProduct(quantilesR :+ Int.MaxValue, Int.MinValue +: quantilesS)
     }
 
     def canBePruned(r: Int, s: Int): Boolean = condition match {
@@ -128,8 +141,8 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
    * @param cS                  the number of horizontal buckets.
    * @return the mapped relation.
    */
-  private def mapRelation(relation: RDD[Int], quantilesSeparators: Array[Int], relationString: String, cS: Int) = {
-    relation
+  private def mapRelation(relation: RDD[Int], quantilesSeparators: IndexedSeq[Int], relationString: String, cS: Int) = {
+    val mappedRelation = relation
       // Get the estimated quantile bucket of each tuple
       .map(value => (value, getBucket(value, quantilesSeparators)))
       // Get the regions crossed by each bucket
@@ -138,21 +151,23 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
       .flatMap { case (value, regions) => regions.map((value, _)) }
       // Add the relation name, to be used in the reduction
       .map { case (value, region) => (region, (value, relationString)) }
+
+    mappedRelation
   }
 
   /** Get the k-quantile delimiters given a sorted array and k
    *
-   * @param sortedArray the array in which the quantiles need to be found
-   * @param kMinus1     the number of delimiters (i.e. k-1, where k is the number of wanted quantiles)
+   * @param sortedSeq the array in which the quantiles need to be found
+   * @param kMinus1   the number of delimiters (i.e. k-1, where k is the number of wanted quantiles)
    * @return an array of size `kMinus1` containing the k-quantiles separators.
    */
-  private def getQuantiles(sortedArray: Array[Int], kMinus1: Int): Array[Int] = {
+  private def getQuantiles(sortedSeq: IndexedSeq[Int], kMinus1: Int): IndexedSeq[Int] = {
     // Get the span of each quantile
-    val quantileSpan = sortedArray.length.floatValue() / (kMinus1 + 1)
+    val quantileSpan = sortedSeq.length.floatValue() / (kMinus1 + 1)
     // Get the index of each quantile
     val indices = (1 to kMinus1).map(_ * quantileSpan).map(_.toInt)
     // Get the quantiles
-    indices.map(sortedArray).toArray
+    indices.map(sortedSeq)
   }
 
   /** Searches for the lower bound of the bucket to which `value` belongs. It performs a binary search.
@@ -162,7 +177,7 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
    * @return the lower bound of the bucket in which `value` must be added.
    */
   @scala.annotation.tailrec
-  private def findBucketLowerBound(value: Int, bucketsLowerBounds: Array[Int]): Int = {
+  private def findBucketLowerBound(value: Int, bucketsLowerBounds: IndexedSeq[Int]): Int = {
     if (bucketsLowerBounds.length == 1) {
       // Return the last remaining bucket
       bucketsLowerBounds(0)
@@ -186,7 +201,7 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
    * @param quantilesSeparators the k-quantiles separators.
    * @return the bucket to which `value` belong.
    */
-  private def getBucket(value: Int, quantilesSeparators: Array[Int]): Int = {
+  private def getBucket(value: Int, quantilesSeparators: IndexedSeq[Int]): Int = {
     // Prepend MinValue to the k-quantiles separators to have a value assigned as a lower bound to the 0-th bucket
     val bucketsLowerBounds = Int.MinValue +: quantilesSeparators
 
@@ -198,13 +213,13 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
         .map { case (quantile, tuples) => (quantile, tuples.map(_._2)) } // Keep only the indices
 
     // Get the lower bound of the quantile to which the value belongs
-    val quantile = findBucketLowerBound(value, groupedLowerBounds.keys.toArray.sorted)
+    val quantile = findBucketLowerBound(value, groupedLowerBounds.keys.toIndexedSeq.sorted)
 
     // Get the corresponding bucket indices
     val quantileBuckets = groupedLowerBounds(quantile)
 
     // Randomly get one index to evenly distribute the load
-    val rnd = new scala.util.Random
+    val rnd = new scala.util.Random(42)
     val bucket = quantileBuckets(rnd.nextInt(quantileBuckets.length))
 
     bucket
@@ -228,12 +243,17 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
    *
    * @param tuples    the tuples on which the join has to be computed.
    * @param condition the join condition.
-   * @param verbose   whether debugging info should be printed
+   * @param verbose   whether debugging info should be printed. Slows down the execution, to be used only for debugging
+   *                  purposes.
    * @return the iterator containing the joined tuples.
    * @throws IllegalArgumentException if the given condition is not one of ">" or "<".
    */
   private def reducePartition(tuples: Iterator[(Int, (Int, String))], condition: String, verbose: Boolean = true): Iterator[(Int, Int)] = {
     val tuplesSeq = tuples.toIndexedSeq
+
+    if (tuplesSeq.isEmpty) {
+      return Iterator[(Int, Int)]()
+    }
 
     // Split the tuples between those in R and those in S
     val tupTot = tuplesSeq.partition(t => t._2._2 == "R")
@@ -245,47 +265,53 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
     val tupR = tupTot._1.map(getValue)
     val tupS = tupTot._2.map(getValue)
 
+    // Remove the values of the relation that must be larger which are smaller of the smallest
+    // value of the other relation
     val rMin = tupR.min
     val sMin = tupS.min
-
-    // Remove the values of the relation that must be larger, which are smaller of the smallest
-    // value of the other relation
     val (filteredS, filteredR) = condition match {
       case "<" => (tupS.filter(_ > rMin), tupR)
-      case ">" => (tupR.filter(_ > sMin), tupS)
+      case ">" => (tupS, tupR.filter(_ > sMin))
     }
 
+    // Filter if either R or S has no possible candidates
     if (filteredR.isEmpty | filteredS.isEmpty) {
       return Iterator[(Int, Int)]()
     }
 
+    // Get the minimum and maximum values of R and S
     val (filteredRMax, filteredRMin) = (filteredR.max, filteredR.min)
     val (filteredSMax, filteredSMin) = (filteredS.max, filteredS.min)
 
+    // Take the values that for sure will be included in the final result, as they always satisfy the join condition.
+    // In particular, in case of "<" we can take tha values in R that are smaller than the smallest value of S, and
+    // for S we can take the values that are larger than the largest values of R.
     val ((toTakeR, toCompareR), (toTakeS, toCompareS)) = condition match {
       case "<" => (filteredR.partition(_ < filteredSMin), filteredS.partition(_ > filteredRMax))
       case ">" => (filteredR.partition(_ > filteredSMax), filteredS.partition(_ < filteredRMin))
     }
 
-    val ready = toTakeR.flatMap(x => filteredS.map(y => (x, y))) ++: toCompareR.flatMap(x => toTakeS.map(y => (x, y)))
+    // Compute the cartesian products that do not need to be filtered.
+    // On the right, we compute toCompareR X toTakeS in order to avoid duplicates.
+    val ready = cartesianProduct(toTakeR, filteredS) ++: cartesianProduct(toCompareR, toTakeS)
 
-    // Compute the cross product among the relations
-    // val cross = filteredR.flatMap(x => filteredS.map(y => (x, y)))
-    val cross = toCompareR.flatMap(x => toCompareS.map(y => (x, y)))
+    // Compute the cartesian product among the relations that need to be compared
+    val cartesian = cartesianProduct(toCompareR, toCompareS)
 
-    // Filter the cross product according to the join condition.
+    // Filter the cartesian product according to the join condition.
     val crossResult = condition match {
-      case "<" => cross.filter(c => c._1 < c._2)
-      case ">" => cross.filter(c => c._1 > c._2)
+      case "<" => cartesian.filter(c => c._1 < c._2)
+      case ">" => cartesian.filter(c => c._1 > c._2)
       case _ => throw new IllegalArgumentException("Wrong condition selected")
     }
 
+    // Get the final result
     val result = crossResult ++: ready
 
     if (verbose) {
       val partitionIndex = tuplesSeq.head._1
       val completeCross = tupR.flatMap(x => tupS.map(y => (x, y)))
-      logger.info(s"Saved comparisons: ${completeCross.size - cross.size}")
+      logger.info(s"Saved comparisons: ${completeCross.size - cartesian.size}")
       logger.info(s"Input reducer $partitionIndex: ${tupTot._1.size + tupTot._2.size}")
       logger.info(s"Output reducer $partitionIndex: ${crossResult.size}")
     }
