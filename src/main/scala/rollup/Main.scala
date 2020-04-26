@@ -1,7 +1,5 @@
 package rollup
 
-import java.io._
-
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.functions._
@@ -10,18 +8,18 @@ object Main {
   def main(args: Array[String]) {
     val spark = SparkSession
       .builder()
-      .appName("Project2")
-      .master("local[*]")
+      .appName("Project2-group-15")
+      // .master("local[*]")
       .getOrCreate()
 
 
-    val input = new File(getClass.getResource("/lineorder_small.tbl").getFile).getPath
+    // val input = new File(getClass.getResource("/lineorder_small.tbl").getFile).getPath
     val df = spark.sqlContext.read
       .format("com.databricks.spark.csv")
       .option("header", "true")
       .option("inferSchema", "true")
       .option("delimiter", "|")
-      .load(input)
+      .load("/user/cs422/lineorder_small.tbl")
 
     val rdd = df.rdd
 

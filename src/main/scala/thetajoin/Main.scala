@@ -9,15 +9,15 @@ object Main {
   def main(args: Array[String]) {
     val spark = SparkSession
       .builder()
-      .appName("Project2")
-      .master("local[*]")
+      .appName("Project2-group-15")
+      // .master("local[*]")
       .getOrCreate()
 
-    val attrIndex1 = 1
-    val attrIndex2 = 1
+    val attrIndex1 = 2
+    val attrIndex2 = 2
 
-    //    val rdd1 = loadRDD(spark.sqlContext, "/dat1_4.csv")
-    //    val rdd2 = loadRDD(spark.sqlContext, "/dat2_4.csv")
+    // val rdd1 = loadRDD(spark.sqlContext, "/dat1_4.csv")
+    // val rdd2 = loadRDD(spark.sqlContext, "/dat2_4.csv")
     //
     //    val thetaJoin = new ThetaJoin(4)
     //    val res = thetaJoin.ineq_join(rdd1, rdd2, attrIndex1, attrIndex2, "<")
@@ -27,18 +27,17 @@ object Main {
     val rdd1 = loadRDD(spark.sqlContext, "/taxA4K.csv")
     val rdd2 = loadRDD(spark.sqlContext, "/taxB4K.csv")
 
-    // val rdd1 = loadLineorderRdd(spark.sqlContext, "/skewed_data.csv")
-    // val rdd2 = loadLineorderRdd(spark.sqlContext, "/skewed_data.csv")
+    // val rdd1 = loadLineorderRdd(spark.sqlContext, "/partition_scratch.tsv")
+    // val rdd2 = loadLineorderRdd(spark.sqlContext, "/partition_scratch.tsv")
 
-    val thetaJoin = new ThetaJoin(64)
+    val thetaJoin = new ThetaJoin(16)
     val res = thetaJoin.ineq_join(rdd1, rdd2, attrIndex1, attrIndex2, "<")
     // println(res.count)
 
     val start = System.currentTimeMillis()
-    res.collect()
+    res.collect
     val end = System.currentTimeMillis()
-
-    println(s"Took ${(end - start) / 1000}s")
+    println(s"Took ${(end - start).floatValue() / 1000}s")
 
     println("----------------------")
     // use the cartesian product to verify correctness of your result
@@ -46,19 +45,20 @@ object Main {
       .filter(x => x._1(attrIndex1).asInstanceOf[Int] < x._2(attrIndex2).asInstanceOf[Int])
       .map(x => (x._1(attrIndex1).asInstanceOf[Int], x._2(attrIndex2).asInstanceOf[Int]))
     // cartesianRes.foreach(x => println(x))
-    // assert(res.sortBy(x => (x._1, x._2)).collect().toList.equals(cartesianRes.sortBy(x => (x._1, x._2)).collect().toList) )
+
+    // assert(res.sortBy(x => (x._1, x._2)).collect().toList.equals(cartesianRes.sortBy(x => (x._1, x._2)).collect.toList))
   }
 
   def loadRDD(sqlContext: SQLContext, file: String): RDD[Row] = {
-    val input = new File(getClass.getResource(file).getFile).getPath
+    // val input = new File(getClass.getResource(file).getFile).getPath
 
     sqlContext.read
       .format("com.databricks.spark.csv")
       .option("header", "false")
       .option("inferSchema", "true")
       .option("delimiter", ",")
-      .load(input)
-      // .limit(100)
+      .load(s"/user/cs422$file")
+      // .limit(1000)
       .rdd
   }
 
@@ -67,10 +67,12 @@ object Main {
 
     sqlContext.read
       .format("com.databricks.spark.csv")
-      .option("header", "true")
+      .option("header", "fa")
       .option("inferSchema", "true")
       .option("delimiter", "|")
-      .load(input).rdd
+      .load(input) //
+      // .limit(1000)
+      .rdd
   }
 
 }

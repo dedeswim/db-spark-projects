@@ -37,19 +37,31 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
     val rQuantilesSeparators = getQuantiles(rSamples, cR - 1)
     val sQuantilesSeparators = getQuantiles(sSamples, cS - 1)
 
-    // Get the complete relations, sort them and get the true quantiles
-    // val sortedR = R.collect.sorted
-    // val sortedS = S.collect.sorted
-    // val rQuantilesSeparators = getQuantiles(sortedR, cR - 1)
-    // val sQuantilesSeparators = getQuantiles(sortedS, cS - 1)
+    // Set to true if information about true k-quantiles separators are needed
+    val verbose = false
+    if (verbose) {
+      // Get the complete relations, sort them and get the true quantiles
+      val sortedR = R.collect.sorted
+      val sortedS = S.collect.sorted
+      val rQuantilesSeparators = getQuantiles(sortedR, cR - 1)
+      val sQuantilesSeparators = getQuantiles(sortedS, cS - 1)
+      logger.info(s"R true quantiles: ${rQuantilesSeparators.mkString(", ")}")
+      logger.info(s"S true quantiles: ${sQuantilesSeparators.mkString(", ")}")
+    }
 
-    println(s"R estimated quantiles: ${rQuantilesSeparators.mkString(", ")}")
-    println(s"S estimated quantiles: ${sQuantilesSeparators.mkString(", ")}")
+
+    logger.info(s"R estimated quantiles: ${rQuantilesSeparators.mkString(", ")}")
+    logger.info(s"S estimated quantiles: ${sQuantilesSeparators.mkString(", ")}")
 
     // Compute which partitions to ignore, due to specific conditions
     val partitionsToPrune = getPartitionsToPrune(rQuantilesSeparators, sQuantilesSeparators, condition).toSet
 
-    println(s"Partitions to prune: ${partitionsToPrune.mkString(", ")}")
+    if (partitionsToPrune.nonEmpty) {
+      logger.info(s"Partitions to prune: ${partitionsToPrune.mkString(", ")}")
+    } else {
+      logger.info("There are no partitions to prune")
+    }
+
 
     // Map each R-tuple and S-tuple to their respective partitions
     val mapR: RDD[(Int, (Int, String))] = mapRelation(R, rQuantilesSeparators, "R", cS)
@@ -60,15 +72,19 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
       case (partition, _) => !partitionsToPrune.contains(partition)
     }
 
+    val partitionsToKeep = (0 until partitions).toSet.diff(partitionsToPrune).toArray
+    val newPartitionsMap = partitionsToKeep.zipWithIndex.toMap
+
     // Create unique RDD for R and S, and partition, removing those to prune
     val M: RDD[(Int, (Int, String))] =
       mapR
         .union(mapS)
-        .partitionBy(new BucketPartitioner(partitions))
         .filter(isToPrune)
+        .map { case (partition, tuple) => (newPartitionsMap(partition), tuple) }
+        .partitionBy(new BucketPartitioner(partitionsToKeep.length))
 
     // Map each partition and reduce
-    val joined: RDD[(Int, Int)] = M.mapPartitions(t => reducePartition(t, condition))
+    val joined: RDD[(Int, Int)] = M.mapPartitions(t => reducePartition(t, condition, verbose = false))
 
     joined
   }
@@ -132,9 +148,9 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
    */
   private def getQuantiles(sortedArray: Array[Int], kMinus1: Int): Array[Int] = {
     // Get the span of each quantile
-    val quantileSpan = sortedArray.length / (kMinus1 + 1) + 1
+    val quantileSpan = sortedArray.length.floatValue() / (kMinus1 + 1)
     // Get the index of each quantile
-    val indices = (1 to kMinus1).map(_ * quantileSpan - 1)
+    val indices = (1 to kMinus1).map(_ * quantileSpan).map(_.toInt)
     // Get the quantiles
     indices.map(sortedArray).toArray
   }
@@ -219,12 +235,6 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
   private def reducePartition(tuples: Iterator[(Int, (Int, String))], condition: String, verbose: Boolean = true): Iterator[(Int, Int)] = {
     val tuplesSeq = tuples.toIndexedSeq
 
-    // Return if the partition has no input.
-    // TODO: check if this is really necessary, it shouldn't
-    if (tuplesSeq.isEmpty) {
-      return Iterator[(Int, Int)]()
-    }
-
     // Split the tuples between those in R and those in S
     val tupTot = tuplesSeq.partition(t => t._2._2 == "R")
 
@@ -235,20 +245,45 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
     val tupR = tupTot._1.map(getValue)
     val tupS = tupTot._2.map(getValue)
 
+    val rMin = tupR.min
+    val sMin = tupS.min
+
+    // Remove the values of the relation that must be larger, which are smaller of the smallest
+    // value of the other relation
+    val (filteredS, filteredR) = condition match {
+      case "<" => (tupS.filter(_ > rMin), tupR)
+      case ">" => (tupR.filter(_ > sMin), tupS)
+    }
+
+    val (filteredRMax, filteredRMin) = (filteredR.max, filteredR.min)
+    val (filteredSMax, filteredSMin) = (filteredS.max, filteredS.min)
+
+    val ((toTakeR, toCompareR), (toTakeS, toCompareS)) = condition match {
+      case "<" => (filteredR.partition(_ < filteredSMin), filteredS.partition(_ > filteredRMax))
+      case ">" => (filteredR.partition(_ > filteredSMax), filteredS.partition(_ < filteredRMin))
+    }
+
+    val ready = toTakeR.flatMap(x => filteredS.map(y => (x, y))) ++: toCompareR.flatMap(x => toTakeS.map(y => (x, y)))
+
     // Compute the cross product among the relations
-    val cross = tupR.flatMap(x => tupS.map(y => (x, y)))
+    // val cross = filteredR.flatMap(x => filteredS.map(y => (x, y)))
+    val cross = toCompareR.flatMap(x => toCompareS.map(y => (x, y)))
 
     // Filter the cross product according to the join condition.
-    val result = condition match {
+    val crossResult = condition match {
       case "<" => cross.filter(c => c._1 < c._2)
       case ">" => cross.filter(c => c._1 > c._2)
       case _ => throw new IllegalArgumentException("Wrong condition selected")
     }
 
+    val result = crossResult ++: ready
+
     if (verbose) {
-      val partitionIndex = tuplesSeq(0)._1
-      println(s"Input reducer $partitionIndex: ${tupTot._1.size + tupTot._2.size}")
-      println(s"Output reducer $partitionIndex: ${result.size}")
+      val partitionIndex = tuplesSeq.head._1
+      val completeCross = tupR.flatMap(x => tupS.map(y => (x, y)))
+      logger.info(s"Saved comparisons: ${completeCross.size - cross.size}")
+      logger.info(s"Input reducer $partitionIndex: ${tupTot._1.size + tupTot._2.size}")
+      logger.info(s"Output reducer $partitionIndex: ${crossResult.size}")
     }
 
     result.toIterator
