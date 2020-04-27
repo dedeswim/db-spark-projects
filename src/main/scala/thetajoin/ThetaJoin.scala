@@ -64,21 +64,16 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
 
 
     // Map each R-tuple and S-tuple to their respective partitions
-    val mapR: RDD[(Int, (Int, String))] = mapRelation(R, rQuantilesSeparators, "R", cS)
-    val mapS: RDD[(Int, (Int, String))] = mapRelation(S, sQuantilesSeparators, "S", cS)
+    val mapR: RDD[(Int, (Int, String))] = mapRelation(R, rQuantilesSeparators, "R", cS, cR)
+    val mapS: RDD[(Int, (Int, String))] = mapRelation(S, sQuantilesSeparators, "S", cS, cR)
 
     // Define a lambda to filter partitions to prune
     val isToPrune: ((Int, (Int, String))) => Boolean = {
       case (partition, _) => !partitionsToPrune.contains(partition)
     }
 
-    val partitionsToKeep = (0 until partitions).toSet.diff(partitionsToPrune).toIndexedSeq.sorted
+    val partitionsToKeep = (0 until Math.min(partitions, cR*cS)).toSet.diff(partitionsToPrune).toIndexedSeq.sorted
     val newPartitionsMap = partitionsToKeep.zipWithIndex.toMap
-
-    val debugM = mapR
-      .union(mapS)
-      .filter(isToPrune)
-      .map { case (partition, tuple) => (newPartitionsMap(partition), tuple) }
 
     // Create unique RDD for R and S, and partition, removing those to prune
     val M: RDD[(Int, (Int, String))] =
@@ -88,7 +83,7 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
         .map { case (partition, tuple) => (newPartitionsMap(partition), tuple) }
         .partitionBy(new BucketPartitioner(partitionsToKeep.length))
 
-    // Map each partition and reduce
+    //Map each partition and reduce
     val joined: RDD[(Int, Int)] = M.mapPartitions(t => reducePartition(t, condition, verbose = false))
 
     joined
@@ -139,14 +134,15 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
    * @param quantilesSeparators the separators of the k-quantiles.
    * @param relationString      the string containing the relation being mapped, must be on of `"R"` or `"S"`.
    * @param cS                  the number of horizontal buckets.
+   * @param cR                  the number of vertical buckets
    * @return the mapped relation.
    */
-  private def mapRelation(relation: RDD[Int], quantilesSeparators: IndexedSeq[Int], relationString: String, cS: Int) = {
+  private def mapRelation(relation: RDD[Int], quantilesSeparators: IndexedSeq[Int], relationString: String, cS: Int, cR: Int) = {
     val mappedRelation = relation
       // Get the estimated quantile bucket of each tuple
       .map(value => (value, getBucket(value, quantilesSeparators)))
       // Get the regions crossed by each bucket
-      .map { case (value, bucket) => (value, getRegions(bucket, cS, relationString)) }
+      .map { case (value, bucket) => (value, getRegions(bucket, cS, cR, relationString)) }
       // Unpack all the regions and create different tuples each
       .flatMap { case (value, regions) => regions.map((value, _)) }
       // Add the relation name, to be used in the reduction
@@ -178,19 +174,23 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
    */
   @scala.annotation.tailrec
   private def findBucketLowerBound(value: Int, bucketsLowerBounds: IndexedSeq[Int]): Int = {
-    if (bucketsLowerBounds.length == 1) {
-      // Return the last remaining bucket
-      bucketsLowerBounds(0)
-    } else {
+    // Base case: if two elements are in the array, the lower bound must be in these two
+    if (bucketsLowerBounds.length == 2) {
+      if (value >= bucketsLowerBounds(1))
+        bucketsLowerBounds(1)
+      else
+        bucketsLowerBounds(0)
+    }
+    else {
       bucketsLowerBounds(bucketsLowerBounds.length / 2) match {
         // If matches the quantile, then it is the quantile lower bound, so return it
         case middleQuantile if middleQuantile == value => middleQuantile
         // If it is the value is larger than the middle quantile, then search in the right half
         case middleQuantile if value > middleQuantile =>
-          findBucketLowerBound(value, bucketsLowerBounds.takeRight(bucketsLowerBounds.length / 2))
+          findBucketLowerBound(value, bucketsLowerBounds.takeRight(bucketsLowerBounds.length / 2 + 1))
         // Else search in the left half
         case middleQuantile if value < middleQuantile =>
-          findBucketLowerBound(value, bucketsLowerBounds.take(bucketsLowerBounds.length / 2))
+          findBucketLowerBound(value, bucketsLowerBounds.take(bucketsLowerBounds.length / 2 + 1))
       }
     }
   }
@@ -229,13 +229,14 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
    *
    * @param bucket   the index of the bucket.
    * @param cS       the number of horizontal buckets.
+   * @param cR                  the number of vertical buckets
    * @param relation the relation of the bucket. Must be one of `"R"` or `"S"`
    * @return the array with the intersected regions.
    */
-  private def getRegions(bucket: Int, cS: Int, relation: String): IndexedSeq[Int] = {
+  private def getRegions(bucket: Int, cS: Int, cR: Int, relation: String): IndexedSeq[Int] = {
     relation match {
       case "R" => bucket * cS until (bucket * cS + cS)
-      case "S" => bucket until partitions by cS
+      case "S" => bucket until Math.min(partitions, cR*cS) by cS
     }
   }
 
@@ -250,10 +251,6 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
    */
   private def reducePartition(tuples: Iterator[(Int, (Int, String))], condition: String, verbose: Boolean = true): Iterator[(Int, Int)] = {
     val tuplesSeq = tuples.toIndexedSeq
-
-    if (tuplesSeq.isEmpty) {
-      return Iterator[(Int, Int)]()
-    }
 
     // Split the tuples between those in R and those in S
     val tupTot = tuplesSeq.partition(t => t._2._2 == "R")
@@ -272,11 +269,6 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
     val (filteredS, filteredR) = condition match {
       case "<" => (tupS.filter(_ > rMin), tupR)
       case ">" => (tupS, tupR.filter(_ > sMin))
-    }
-
-    // Filter if either R or S has no possible candidates
-    if (filteredR.isEmpty | filteredS.isEmpty) {
-      return Iterator[(Int, Int)]()
     }
 
     // Get the minimum and maximum values of R and S
