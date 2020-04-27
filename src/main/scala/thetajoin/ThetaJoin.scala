@@ -17,7 +17,6 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
         Returns and RDD[(Int, Int)]: projects only the join keys.
          */
   def ineq_join(dat1: RDD[Row], dat2: RDD[Row], attrIndex1: Int, attrIndex2: Int, condition: String): RDD[(Int, Int)] = {
-
     // Project the needed attribute
     val R = dat1.map(_ (attrIndex1).asInstanceOf[Int])
     val S = dat2.map(_ (attrIndex2).asInstanceOf[Int])

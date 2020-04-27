@@ -1,5 +1,7 @@
 package thetajoin
 
+import java.io.File
+
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.{Row, SQLContext, SparkSession}
 
@@ -8,10 +10,11 @@ object Main {
     val spark = SparkSession
       .builder()
       .appName("Project2-group-15")
+      .master("local[*]")
       .getOrCreate()
 
-    val attrIndex1 = 2
-    val attrIndex2 = 2
+    val attrIndex1 = 0
+    val attrIndex2 = 1
 
     // val rdd1 = loadRDD(spark.sqlContext, "/dat1_4.csv")
     // val rdd2 = loadRDD(spark.sqlContext, "/dat2_4.csv")
@@ -21,8 +24,8 @@ object Main {
     //    res.foreach(x => println(x))
 
 
-    val rdd1 = loadRDD(spark.sqlContext, "/taxA4K.csv")
-    val rdd2 = loadRDD(spark.sqlContext, "/taxB4K.csv")
+    val rdd1 = loadRDD(spark.sqlContext, "/skewed_data.csv")
+    val rdd2 = loadRDD(spark.sqlContext, "/skewed_data.csv")
 
     val thetaJoin = new ThetaJoin(16)
     val res = thetaJoin.ineq_join(rdd1, rdd2, attrIndex1, attrIndex2, ">")
@@ -51,12 +54,15 @@ object Main {
   }
 
   def loadRDD(sqlContext: SQLContext, file: String): RDD[Row] = {
+    val input = new File(getClass.getResource(file).getFile).getPath
     sqlContext.read
       .format("com.databricks.spark.csv")
-      .option("header", "false")
+      .option("header", "true")
       .option("inferSchema", "true")
-      .option("delimiter", ",")
-      .load(s"/user/cs422$file")
+      .option("delimiter", "|")
+      // .load(s"/user/cs422$file")
+      .load(input)
+      .limit(1000)
       .rdd
   }
 }
