@@ -81,7 +81,7 @@ class ThetaJoinTest extends AnyFunSuite {
     val quantilesR = IndexedSeq(31, 50, 50, 50, 50, 50, 50, 50, 50, 62, 92)
     val quantilesS = IndexedSeq(27, 53, 80, 80, 80, 80, 80, 80, 80, 80)
     val result = thetaJoin128.getPartitionsToPrune(quantilesR, quantilesS, "<").toSet
-    val expected = (11 to 110 by 11).toSet.union((121 to 130).toSet) + 111
+    val expected = (11 to 110 by 11).toSet + 111 + 121 + 122 + 123
     println(expected.diff(result).toIndexedSeq.sorted)
     println(result.diff(expected).toIndexedSeq.sorted)
     assert(result == expected)

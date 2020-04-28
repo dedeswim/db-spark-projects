@@ -17,6 +17,7 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
         Returns and RDD[(Int, Int)]: projects only the join keys.
          */
   def ineq_join(dat1: RDD[Row], dat2: RDD[Row], attrIndex1: Int, attrIndex2: Int, condition: String): RDD[(Int, Int)] = {
+
     // Project the needed attribute
     val R = dat1.map(_ (attrIndex1).asInstanceOf[Int])
     val S = dat2.map(_ (attrIndex2).asInstanceOf[Int])
@@ -29,8 +30,8 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
 
     // Take sample to compute the quantiles
     val samplesFactor = 100
-    val rSamples = R.takeSample(withReplacement = false, (cR - 1) * samplesFactor, seed = 42).sorted
-    val sSamples = S.takeSample(withReplacement = false, (cS - 1) * samplesFactor, seed = 0).sorted
+    val rSamples = R.takeSample(withReplacement = false, (cR - 1) * samplesFactor).sorted
+    val sSamples = S.takeSample(withReplacement = false, (cS - 1) * samplesFactor).sorted
 
     // Compute estimated k-quantiles separators
     val rQuantilesSeparators = getQuantiles(rSamples, cR - 1)
@@ -128,14 +129,14 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
     def indexedCartesianProduct(r: IndexedSeq[(Int, Int)], s: IndexedSeq[Int]): IndexedSeq[(Int, (Int, Int))] =
       r.flatMap { case (r, row) => s.map(s => (row, (r, s))) }
 
-    val upperLowerBounds = condition match {
+    val upperLowerBoundsRows = condition match {
       case "<" =>
         indexedCartesianProduct((Int.MinValue +: filledQuantilesR).zipWithIndex, filledQuantilesS :+ Int.MaxValue)
       case ">" =>
         indexedCartesianProduct((filledQuantilesR :+ Int.MaxValue).zipWithIndex, Int.MinValue +: filledQuantilesS)
     }
 
-    val upperLowerBoundsMap = upperLowerBounds.groupBy(identity).mapValues(_.length)
+    val upperLowerBoundsRowMap = upperLowerBoundsRows.groupBy(identity).mapValues(_.length)
 
     val upperLowerBoundsCols = condition match {
       case "<" =>
@@ -155,6 +156,8 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
     }
 
     def expandValues(key: (Int, (Int, Int)), toPrune: Boolean, values: Int, nextPreviousSValue: Int): IndexedSeq[((Int, (Int, Int)), Boolean)] = {
+
+      // Get first element to prune and see if next need so too
       val first = (key, toPrune)
       val (_, (r, nextS)) = key
       val othersToPrune = condition match {
@@ -168,22 +171,27 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
     }
 
     def checkPruneOverCols(key: (Int, (Int, Int)), toPrune: Boolean, values: Int, nextRValue: Int): IndexedSeq[((Int, (Int, Int)), Boolean)] = {
+
+      // If the first value in the col is not prunable, neither the next values will be
       if (!toPrune) {
         return IndexedSeq.fill(values)((key, toPrune))
       }
 
+      // Check if the column need pruning
       val (_, (s, _)) = key
       val needPruning = condition match {
         case "<" => nextRValue >= s
         case ">" => nextRValue <= s
       }
 
+      // The first element in the column must be pruned anyway, so we don't flip it
       val first = (key, toPrune)
       val others = IndexedSeq.fill(values - 1)((key, needPruning))
 
       first +: others
     }
 
+    // Create Map of (s, predS) over the choices of S
     val uniqueSQuantiles = quantilesS.toSet.toIndexedSeq.sorted
     val sNextPreviousValuesMap = condition match {
       case "<" =>
@@ -192,20 +200,22 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
         uniqueSQuantiles.zip(Int.MinValue +: uniqueSQuantiles.dropRight(1)).toMap + (Int.MinValue -> Int.MinValue)
     }
 
+    // Create Map of (r, nextR) over the choices of R
     val uniqueRQuantiles = quantilesR.toSet.toIndexedSeq.sorted
     val rPreviousNextValuesMap = condition match {
       case "<" =>
-        uniqueRQuantiles.zip(uniqueRQuantiles.drop(1) :+ quantilesR.last).toMap + (Int.MinValue -> quantilesR.head)
+        uniqueRQuantiles.zip(uniqueRQuantiles.drop(1) :+ Int.MaxValue).toMap + (Int.MinValue -> quantilesR.head)
       case ">" =>
         uniqueRQuantiles.zip(uniqueRQuantiles.drop(1) :+ quantilesR.last).toMap + (Int.MaxValue -> Int.MaxValue)
     }
 
     // Remove indices that satisfy the condition, and return the indices only
     val prunableTuples =
-      upperLowerBoundsMap
+      upperLowerBoundsRowMap
         .map { case (tuple, repetitions) => (tuple, canBePruned(tuple._2), repetitions) }
         .flatMap { case (key, toPrune, values) => expandValues(key, toPrune, values, sNextPreviousValuesMap(key._2._2)) }
 
+    // Compute the de-prunable tuples over the columns, to be sure the pruning phase didn't prune more than necessary
     val dePrunableTuples =
       upperLowerBoundsColMap
         .map { case (tuple, repetitions) => (tuple, canBePruned(tuple._2._2, tuple._2._1), repetitions) }
@@ -214,24 +224,23 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
         .toIndexedSeq
         .sortBy(_._1)
         .zipWithIndex
-        .map {case (tuple, index) => (index % (quantilesS.length + 1), tuple._1._2, tuple._2)}
+        .map {case (tuple, index) => ((index % (quantilesR.length + 1), tuple._1._2), tuple._2)}
 
+
+    // We can prune only if both pruning stages say so
     def checkDePrune(pruneRow: Boolean, pruneCol: Boolean): Boolean = pruneCol match {
       case false => false
       case true => pruneRow
     }
 
+    // Merge the pruning and update pruned reducers
     val completePruning =
       prunableTuples.toIndexedSeq.sortBy(_._1)
-      .zip(dePrunableTuples.sortBy(_._2))
-      .map({ case (row, col) => (row._1, checkDePrune(row._2, col._3))})
+      .zip(dePrunableTuples.sortBy(_._1))
+      .map({ case (row, col) => (row._1, checkDePrune(row._2, col._2))})
 
 
-//    val sortedPrunableTuples =
-//      completePruning
-//        .toIndexedSeq
-//        .sortBy(_._1)
-
+    // Return corresponding reducers
     val prunableIndices =
       completePruning
         .zipWithIndex
