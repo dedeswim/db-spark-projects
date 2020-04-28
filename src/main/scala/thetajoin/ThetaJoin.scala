@@ -71,7 +71,7 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
       case (partition, _) => !partitionsToPrune.contains(partition)
     }
 
-    val partitionsToKeep = (0 to Math.min(partitions, cR * cS)).toSet.diff(partitionsToPrune).toIndexedSeq.sorted
+    val partitionsToKeep = (0 until Math.min(partitions, cR * cS)).toSet.diff(partitionsToPrune).toIndexedSeq.sorted
     val newPartitionsMap = partitionsToKeep.zipWithIndex.toMap
 
     // Create unique RDD for R and S, and partition, removing those to prune
@@ -137,6 +137,16 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
 
     val upperLowerBoundsMap = upperLowerBounds.groupBy(identity).mapValues(_.length)
 
+    val upperLowerBoundsCols = condition match {
+      case "<" =>
+        indexedCartesianProduct((filledQuantilesS :+ Int.MaxValue).zipWithIndex, Int.MinValue +: filledQuantilesR)
+      case ">" =>
+        indexedCartesianProduct((Int.MinValue +: filledQuantilesS).zipWithIndex, filledQuantilesR :+ Int.MaxValue)
+    }
+
+    val upperLowerBoundsColMap = upperLowerBoundsCols.groupBy(identity).mapValues(_.length)
+
+
     def canBePruned(t: (Int, Int)): Boolean = condition match {
       // If R < S, we can ignore the squares where the lowest number of R is larger than the largest number of S
       case "<" => t._1 >= t._2
@@ -146,13 +156,30 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
 
     def expandValues(key: (Int, (Int, Int)), toPrune: Boolean, values: Int, nextPreviousSValue: Int): IndexedSeq[((Int, (Int, Int)), Boolean)] = {
       val first = (key, toPrune)
-      val (_, (r, _)) = key
+      val (_, (r, nextS)) = key
       val othersToPrune = condition match {
         case "<" => r >= nextPreviousSValue
-        case ">" => r <= nextPreviousSValue
+        case ">" => r <= nextPreviousSValue || r <= nextS
       }
 
       val others = IndexedSeq.fill(values - 1)((key, othersToPrune))
+
+      first +: others
+    }
+
+    def checkPruneOverCols(key: (Int, (Int, Int)), toPrune: Boolean, values: Int, nextRValue: Int): IndexedSeq[((Int, (Int, Int)), Boolean)] = {
+      if (!toPrune) {
+        return IndexedSeq.fill(values)((key, toPrune))
+      }
+
+      val (_, (s, _)) = key
+      val needPruning = condition match {
+        case "<" => nextRValue >= s
+        case ">" => nextRValue <= s
+      }
+
+      val first = (key, toPrune)
+      val others = IndexedSeq.fill(values - 1)((key, needPruning))
 
       first +: others
     }
@@ -165,19 +192,48 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
         uniqueSQuantiles.zip(Int.MinValue +: uniqueSQuantiles.dropRight(1)).toMap + (Int.MinValue -> Int.MinValue)
     }
 
+    val uniqueRQuantiles = quantilesR.toSet.toIndexedSeq.sorted
+    val rPreviousNextValuesMap = condition match {
+      case "<" =>
+        uniqueRQuantiles.zip(uniqueRQuantiles.drop(1) :+ quantilesR.last).toMap + (Int.MinValue -> quantilesR.head)
+      case ">" =>
+        uniqueRQuantiles.zip(uniqueRQuantiles.drop(1) :+ quantilesR.last).toMap + (Int.MaxValue -> Int.MaxValue)
+    }
+
     // Remove indices that satisfy the condition, and return the indices only
     val prunableTuples =
       upperLowerBoundsMap
         .map { case (tuple, repetitions) => (tuple, canBePruned(tuple._2), repetitions) }
         .flatMap { case (key, toPrune, values) => expandValues(key, toPrune, values, sNextPreviousValuesMap(key._2._2)) }
 
-    val sortedPrunableTuples =
-      prunableTuples
+    val dePrunableTuples =
+      upperLowerBoundsColMap
+        .map { case (tuple, repetitions) => (tuple, canBePruned(tuple._2._2, tuple._2._1), repetitions) }
+        .flatMap { case (key, toPrune, values) => checkPruneOverCols(key, toPrune, values, rPreviousNextValuesMap(key._2._2))}
+        .map { case (key, toPrune) => ((key._1, (key._2._2, key._2._1)), toPrune)}
         .toIndexedSeq
         .sortBy(_._1)
+        .zipWithIndex
+        .map {case (tuple, index) => (index % (quantilesS.length + 1), tuple._1._2, tuple._2)}
+
+    def checkDePrune(pruneRow: Boolean, pruneCol: Boolean): Boolean = pruneCol match {
+      case false => false
+      case true => pruneRow
+    }
+
+    val completePruning =
+      prunableTuples.toIndexedSeq.sortBy(_._1)
+      .zip(dePrunableTuples.sortBy(_._2))
+      .map({ case (row, col) => (row._1, checkDePrune(row._2, col._3))})
+
+
+//    val sortedPrunableTuples =
+//      completePruning
+//        .toIndexedSeq
+//        .sortBy(_._1)
 
     val prunableIndices =
-      sortedPrunableTuples
+      completePruning
         .zipWithIndex
         .filter(_._1._2)
         .map(_._2)

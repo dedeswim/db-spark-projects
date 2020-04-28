@@ -65,4 +65,25 @@ class ThetaJoinTest extends AnyFunSuite {
     println(result.diff(expected).toIndexedSeq.sorted)
     assert(result == expected)
   }
+
+  test("ThetaJoin.getPartitionsToPruneLargerTransposed") {
+    val quantilesR = IndexedSeq(31, 50, 50, 50, 50, 50, 50, 50, 50, 62)
+    val quantilesS = IndexedSeq(27, 53, 80, 80, 80, 80, 80, 80, 80, 80)
+    val result = thetaJoin128.getPartitionsToPrune(quantilesR, quantilesS, ">").toSet
+    val expected = (0 to 120).toSet.diff((110 to 120).toSet)
+                    .diff((0 to 99 by 11).toSet).diff((1 to 100 by 11).toSet).diff((24 to 101 by 11).toSet)
+    println(expected.diff(result).toIndexedSeq.sorted)
+    println(result.diff(expected).toIndexedSeq.sorted)
+    assert(result == expected)
+  }
+
+  test("ThetaJoin.getPartitionsToPruneSmallerTransposed") {
+    val quantilesR = IndexedSeq(31, 50, 50, 50, 50, 50, 50, 50, 50, 62, 92)
+    val quantilesS = IndexedSeq(27, 53, 80, 80, 80, 80, 80, 80, 80, 80)
+    val result = thetaJoin128.getPartitionsToPrune(quantilesR, quantilesS, "<").toSet
+    val expected = (11 to 110 by 11).toSet.union((121 to 130).toSet) + 111
+    println(expected.diff(result).toIndexedSeq.sorted)
+    println(result.diff(expected).toIndexedSeq.sorted)
+    assert(result == expected)
+  }
 }
