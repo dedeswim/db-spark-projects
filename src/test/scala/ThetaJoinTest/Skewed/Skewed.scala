@@ -10,8 +10,7 @@ import thetajoin.ThetaJoin
 class Skewed extends ThetaJoinTest {
   def testSkewed(amount: Int = 4000): (ThetaJoin, String) => Unit = {
     val rdd1 = loadSkewedRDD("/skewed_data.csv", amount)
-    val rdd2 = loadSkewedRDD("/skewed_data.csv", amount)
-    super.testInequalityJoin(0, 1, rdd1, rdd2)
+    testInequalityJoin(0, 1, rdd1, rdd1)
   }
 
   def loadSkewedRDD(file: String, amount: Int): RDD[Row] = {

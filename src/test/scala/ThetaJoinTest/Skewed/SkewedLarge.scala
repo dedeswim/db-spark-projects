@@ -1,28 +1,27 @@
 package ThetaJoinTest.Skewed
 
 class SkewedLarge extends Skewed {
-  test("ThetaJoin.ineq_joinTestSkewed4k1PartitionLarger") {
+  test("1PartitionLarger") {
     testSkewed()(thetaJoin1, ">")
   }
 
-  test("ThetaJoin.ineq_joinTestSkewed4k1PartitionSmaller") {
+  test("1PartitionSmaller") {
     testSkewed()(thetaJoin1, "<")
   }
 
-
-  test("ThetaJoin.ineq_joinTestSkewed4k16PartitionsLarger") {
+  test("16PartitionsLarger") {
     testSkewed()(thetaJoin16, ">")
   }
 
-  test("ThetaJoin.ineq_joinTestSkewed4k16PartitionsSmaller") {
+  test("16PartitionsSmaller") {
     testSkewed()(thetaJoin16, "<")
   }
 
-  test("ThetaJoin.ineq_joinTestSkewed4k128PartitionsLarger") {
+  test("128PartitionsLarger") {
     testSkewed()(thetaJoin128, ">")
   }
 
-  test("ThetaJoin.ineq_joinTestSkewed4k128PartitionsSmaller") {
+  test("128PartitionsSmaller") {
     testSkewed()(thetaJoin128, "<")
   }
 }

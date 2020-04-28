@@ -1,27 +1,27 @@
 package ThetaJoinTest.Taxes
 
 class TaxesLarge extends Taxes {
-  test("ThetaJoin.ineq_joinTestTax4k1PartitionLarger") {
+  test("1PartitionLarger") {
     testTaxes()(thetaJoin1, ">")
   }
 
-  test("ThetaJoin.ineq_joinTestTax4k1PartitionSmaller") {
+  test("1PartitionSmaller") {
     testTaxes()(thetaJoin1, "<")
   }
 
-  test("ThetaJoin.ineq_joinTestTax4k16PartitionsLarger") {
+  test("16PartitionsLarger") {
     testTaxes()(thetaJoin16, ">")
   }
 
-  test("ThetaJoin.ineq_joinTestTax4k16PartitionsSmaller") {
+  test("16PartitionsSmaller") {
     testTaxes()(thetaJoin16, "<")
   }
 
-  test("ThetaJoin.ineq_joinTestTax4k128PartitionsLarger") {
+  test("128PartitionsLarger") {
     testTaxes()(thetaJoin128, ">")
   }
 
-  test("ThetaJoin.ineq_joinTestTax4k128PartitionsSmaller") {
+  test("128PartitionsSmaller") {
     testTaxes()(thetaJoin128, "<")
   }
 }

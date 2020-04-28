@@ -29,8 +29,8 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
 
     // Take sample to compute the quantiles
     val samplesFactor = 100
-    val rSamples = R.takeSample(withReplacement = false, (cR - 1) * samplesFactor).sorted
-    val sSamples = S.takeSample(withReplacement = false, (cS - 1) * samplesFactor).sorted
+    val rSamples = R.takeSample(withReplacement = false, (cR - 1) * samplesFactor, seed = 42).sorted
+    val sSamples = S.takeSample(withReplacement = false, (cS - 1) * samplesFactor, seed = 0).sorted
 
     // Compute estimated k-quantiles separators
     val rQuantilesSeparators = getQuantiles(rSamples, cR - 1)
@@ -71,7 +71,7 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
       case (partition, _) => !partitionsToPrune.contains(partition)
     }
 
-    val partitionsToKeep = (0 until Math.min(partitions, cR * cS)).toSet.diff(partitionsToPrune).toIndexedSeq.sorted
+    val partitionsToKeep = (0 to Math.min(partitions, cR * cS)).toSet.diff(partitionsToPrune).toIndexedSeq.sorted
     val newPartitionsMap = partitionsToKeep.zipWithIndex.toMap
 
     // Create unique RDD for R and S, and partition, removing those to prune
@@ -83,8 +83,8 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
         // .partitionBy(new BucketPartitioner(partitionsToKeep.length))
         .partitionBy(new BucketPartitioner(Math.min(partitions, cR * cS)))
 
-    //Map each partition and reduce
-    val joined: RDD[(Int, Int)] = M.mapPartitions(t => reducePartition(t, condition, verbose = true))
+    // Map each partition and reduce
+    val joined: RDD[(Int, Int)] = M.mapPartitions(t => reducePartition(t, condition, verbose = false))
 
     joined
   }
@@ -110,12 +110,29 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
     // 0th bucket, the opposite happens with the higher one. Since we don't know what's the minimum value of the
     // relation that must be larger, nor the maximum value of the relation that must be smaller.
 
+    // TODO: find general fix
+    if (quantilesR.isEmpty | quantilesS.isEmpty) {
+      return IndexedSeq()
+    }
+
+    val filledQuantilesR = quantilesR match {
+      case Seq() => IndexedSeq(Int.MinValue)
+      case _ => quantilesR
+    }
+
+    val filledQuantilesS = quantilesS match {
+      case Seq() => IndexedSeq(Int.MinValue)
+      case _ => quantilesS
+    }
+
     def indexedCartesianProduct(r: IndexedSeq[(Int, Int)], s: IndexedSeq[Int]): IndexedSeq[(Int, (Int, Int))] =
       r.flatMap { case (r, row) => s.map(s => (row, (r, s))) }
 
     val upperLowerBounds = condition match {
-      case "<" => indexedCartesianProduct((Int.MinValue +: quantilesR).zipWithIndex, quantilesS :+ Int.MaxValue)
-      case ">" => indexedCartesianProduct((quantilesR :+ Int.MaxValue).zipWithIndex, Int.MinValue +: quantilesS)
+      case "<" =>
+        indexedCartesianProduct((Int.MinValue +: filledQuantilesR).zipWithIndex, filledQuantilesS :+ Int.MaxValue)
+      case ">" =>
+        indexedCartesianProduct((filledQuantilesR :+ Int.MaxValue).zipWithIndex, Int.MinValue +: filledQuantilesS)
     }
 
     val upperLowerBoundsMap = upperLowerBounds.groupBy(identity).mapValues(_.length)
@@ -337,6 +354,12 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
    * @return the bucket to which `value` belong.
    */
   private def getBucket(value: Int, quantilesSeparators: IndexedSeq[Int]): Int = {
+
+    // There is just one partition working.
+    if (quantilesSeparators.isEmpty) {
+      return 0
+    }
+
     // Prepend MinValue to the k-quantiles separators to have a value assigned as a lower bound to the 0-th bucket
     val bucketsLowerBounds = Int.MinValue +: quantilesSeparators
 
@@ -354,7 +377,7 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
     val quantileBuckets = groupedLowerBounds(quantile)
 
     // Randomly get one index to evenly distribute the load
-    val rnd = new scala.util.Random
+    val rnd = new scala.util.Random(42)
     val randomIndex = rnd.nextInt(quantileBuckets.length)
     val bucket = quantileBuckets(randomIndex)
 

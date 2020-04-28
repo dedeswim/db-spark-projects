@@ -10,7 +10,6 @@ class ThetaJoinTest extends AnyFunSuite {
   val thetaJoin2 = new ThetaJoin(2)
   val thetaJoin16 = new ThetaJoin(16)
   val thetaJoin128 = new ThetaJoin(128)
-  val condition = "<"
   val cR = 11
   val cS = 11
   val spark: SparkSession = SparkSession
@@ -28,8 +27,9 @@ class ThetaJoinTest extends AnyFunSuite {
           case "<" => x => x._1(attrIndex1).asInstanceOf[Int] < x._2(attrIndex2).asInstanceOf[Int]
         }
       } map (x => (x._1(attrIndex1).asInstanceOf[Int], x._2(attrIndex2).asInstanceOf[Int]))
-    assert(res.subtract(cartesianRes).count() == 0)
-    assert(cartesianRes.subtract(res).count() == 0)
+    assert(0 == res.subtract(cartesianRes).count())
+    cartesianRes.subtract(res).foreach(println)
+    assert(0 == cartesianRes.subtract(res).count())
   }
 
   test("ThetaJoin.getRegions1") {
@@ -46,11 +46,21 @@ class ThetaJoinTest extends AnyFunSuite {
     assert(result == expected)
   }
 
-  test("ThetaJoin.getPartitionsToPrune") {
+  test("ThetaJoin.getPartitionsToPruneSmaller") {
     val quantilesS = IndexedSeq(31, 50, 50, 50, 50, 50, 50, 50, 50, 62)
     val quantilesR = IndexedSeq(27, 53, 80, 80, 80, 80, 80, 80, 80, 80)
-    val result = thetaJoin128.getPartitionsToPrune(quantilesR, quantilesS, condition).toSet
+    val result = thetaJoin128.getPartitionsToPrune(quantilesR, quantilesS, "<").toSet
     val expected = (33 until 120).toSet - 43 - 54 - 65 - 76 - 87 - 98 - 109 - 120 + 22 + 23
+    println(expected.diff(result).toIndexedSeq.sorted)
+    println(result.diff(expected).toIndexedSeq.sorted)
+    assert(result == expected)
+  }
+
+  test("ThetaJoin.getPartitionsToPruneLarger") {
+    val quantilesS = IndexedSeq(31, 50, 50, 50, 50, 50, 50, 50, 50, 62)
+    val quantilesR = IndexedSeq(27, 53, 80, 80, 80, 80, 80, 80, 80, 80)
+    val result = thetaJoin128.getPartitionsToPrune(quantilesR, quantilesS, ">").toSet
+    val expected = (1 to 10).toSet + 21
     println(expected.diff(result).toIndexedSeq.sorted)
     println(result.diff(expected).toIndexedSeq.sorted)
     assert(result == expected)
