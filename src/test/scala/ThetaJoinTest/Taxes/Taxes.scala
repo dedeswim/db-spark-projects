@@ -8,10 +8,10 @@ import org.apache.spark.sql.Row
 import thetajoin.ThetaJoin
 
 class Taxes extends ThetaJoinTest {
-  def testTaxes(amount: Int = 4000): (ThetaJoin, String) => Unit = {
+  def testTaxes(amount: Int = 4000, attrIndex1:Int = 1, attrIndex2:Int = 1): (ThetaJoin, String) => Unit = {
     val rdd1 = loadTaxesRDD("/taxA4K.csv", amount)
     val rdd2 = loadTaxesRDD("/taxB4K.csv", amount)
-    testInequalityJoin(2, 2, rdd1, rdd2)
+    testInequalityJoin(attrIndex1, attrIndex2, rdd1, rdd2)
   }
 
   def loadTaxesRDD(filename: String, amount: Int = 4000): RDD[Row] = {

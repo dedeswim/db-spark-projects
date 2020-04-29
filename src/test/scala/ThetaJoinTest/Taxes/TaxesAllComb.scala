@@ -4,11 +4,13 @@ import thetajoin.ThetaJoin
 
 class TaxesAllComb extends Taxes {
 
-  for (partitions <- 1 to 512) {
+  for (partitions <- 1 to 512 by 5) {
     for (condition <- IndexedSeq("<", ">")) {
-      val theta = new ThetaJoin(partitions)
-      test(partitions.toString + " partitions, cond: " + condition) {
-        testTaxes(500)(theta, condition)
+      for (attrIndex1 <- 1 to 2; attrIndex2 <- 1 to 2) {
+        val theta = new ThetaJoin(partitions)
+        test(partitions.toString + " partitions, cond: " + condition + " attrIndex1: " + attrIndex1 + " attrIndex2: " + attrIndex2) {
+          testTaxes(250, attrIndex1, attrIndex2)(theta, condition)
+        }
       }
     }
   }

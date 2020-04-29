@@ -227,17 +227,11 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
         .map {case (tuple, index) => ((index % (quantilesR.length + 1), tuple._1._2), tuple._2)}
 
 
-    // We can prune only if both pruning stages say so
-    def checkDePrune(pruneRow: Boolean, pruneCol: Boolean): Boolean = pruneCol match {
-      case false => false
-      case true => pruneRow
-    }
-
-    // Merge the pruning and update pruned reducers
+    // We can prune only if both pruning stages say so, merge the pruning and update pruned reducers
     val completePruning =
       prunableTuples.toIndexedSeq.sortBy(_._1)
       .zip(dePrunableTuples.sortBy(_._1))
-      .map({ case (row, col) => (row._1, checkDePrune(row._2, col._2))})
+      .map({ case (row, col) => (row._1, row._2 && col._2)})
 
 
     // Return corresponding reducers
