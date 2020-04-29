@@ -8,9 +8,9 @@ import org.apache.spark.sql.Row
 import thetajoin.ThetaJoin
 
 class Skewed extends ThetaJoinTest {
-  def testSkewed(amount: Int = 4000): (ThetaJoin, String) => Unit = {
+  def testSkewed(amount: Int = 4000, attrIndex1:Int = 0, attrIndex2:Int = 1): (ThetaJoin, String) => Unit = {
     val rdd1 = loadSkewedRDD("/skewed_data.csv", amount)
-    testInequalityJoin(0, 1, rdd1, rdd1)
+    testInequalityJoin(attrIndex1, attrIndex2, rdd1, rdd1)
   }
 
   def loadSkewedRDD(file: String, amount: Int): RDD[Row] = {

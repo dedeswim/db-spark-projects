@@ -9,6 +9,7 @@ class ThetaJoinTest extends AnyFunSuite {
   val thetaJoin1 = new ThetaJoin(1)
   val thetaJoin2 = new ThetaJoin(2)
   val thetaJoin16 = new ThetaJoin(16)
+  val thetaJoin25 = new ThetaJoin(25)
   val thetaJoin128 = new ThetaJoin(128)
   val cR = 11
   val cS = 11
@@ -86,4 +87,15 @@ class ThetaJoinTest extends AnyFunSuite {
     println(result.diff(expected).toIndexedSeq.sorted)
     assert(result == expected)
   }
+
+    test("ThetaJoin.getPartitionsToPruneLarger25") {
+      val quantilesR = IndexedSeq(50, 50, 50, 50)
+      val quantilesS = IndexedSeq(54, 80, 80, 80)
+      val result = thetaJoin25.getPartitionsToPrune(quantilesR, quantilesS, ">").toSet
+      val expected = (1 to 4).toSet
+      println(expected.diff(result).toIndexedSeq.sorted)
+      println(result.diff(expected).toIndexedSeq.sorted)
+      assert(result == expected)
+    }
+
 }

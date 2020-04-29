@@ -4,11 +4,13 @@ import thetajoin.ThetaJoin
 
 class SkewedAllComb extends Skewed {
 
-  for (partitions <- 1 to 512) {
+  for (partitions <- 1 to 512 by 2) {
     for (condition <- IndexedSeq("<", ">")) {
-      val theta = new ThetaJoin(partitions)
-      test(partitions.toString + " partitions, cond: " + condition) {
-        testSkewed(500)(theta, condition)
+      for (attrIndex1 <- 0 to 1; attrIndex2 <- 0 to 1) {
+          val theta = new ThetaJoin(partitions)
+          test(partitions.toString + " partitions, cond: " + condition + " attrIndex1: " + attrIndex1 + " attrIndex2: " + attrIndex2) {
+            testSkewed(250, attrIndex1, attrIndex2)(theta, condition)
+        }
       }
     }
   }

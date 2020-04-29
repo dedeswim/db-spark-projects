@@ -206,7 +206,7 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
       case "<" =>
         uniqueRQuantiles.zip(uniqueRQuantiles.drop(1) :+ Int.MaxValue).toMap + (Int.MinValue -> quantilesR.head)
       case ">" =>
-        uniqueRQuantiles.zip(uniqueRQuantiles.drop(1) :+ quantilesR.last).toMap + (Int.MaxValue -> Int.MaxValue)
+        uniqueRQuantiles.zip(uniqueRQuantiles.drop(1) :+ Int.MaxValue).toMap + (Int.MaxValue -> Int.MaxValue)
     }
 
     // Remove indices that satisfy the condition, and return the indices only
