@@ -22,6 +22,9 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
     val R = dat1.map(_ (attrIndex1).asInstanceOf[Int])
     val S = dat2.map(_ (attrIndex2).asInstanceOf[Int])
 
+    val (minR, maxR) = (R.min(), R.max())
+    val (minS, maxS) = (S.min(), S.max())
+
     // Compute C_r and C_s
     val cardR = dat1.count
     val cardS = dat2.count
@@ -54,7 +57,7 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
     logger.info(s"S estimated quantiles: ${sQuantilesSeparators.mkString(", ")}")
 
     // Compute which partitions to ignore, due to specific conditions
-    val partitionsToPrune = getPartitionsToPrune(rQuantilesSeparators, sQuantilesSeparators, condition).toSet
+    val partitionsToPrune = getPartitionsToPrune(rQuantilesSeparators, sQuantilesSeparators, condition, minR, maxR, minS, maxS).toSet
 
     if (partitionsToPrune.nonEmpty) {
       logger.info(s"Partitions to prune: ${partitionsToPrune.mkString(", ")}")
@@ -80,9 +83,8 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
       mapR
         .union(mapS)
         .filter(isToPrune)
-        // .map { case (partition, tuple) => (newPartitionsMap(partition), tuple) }
-        // .partitionBy(new BucketPartitioner(partitionsToKeep.length))
-        .partitionBy(new BucketPartitioner(Math.min(partitions, cR * cS)))
+        .map { case (partition, tuple) => (newPartitionsMap(partition), tuple) }
+        .partitionBy(new BucketPartitioner(partitionsToKeep.length))
 
     // Map each partition and reduce
     val joined: RDD[(Int, Int)] = M.mapPartitions(t => reducePartition(t, condition, verbose = false))
@@ -105,44 +107,34 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
    * @param condition  the join condition
    * @return the indices of the partitions that do not need to be reduced and can be pruned.
    */
-  def getPartitionsToPrune(quantilesR: IndexedSeq[Int], quantilesS: IndexedSeq[Int], condition: String): IndexedSeq[Int] = {
+  def getPartitionsToPrune(
+                            quantilesR: IndexedSeq[Int],
+                            quantilesS: IndexedSeq[Int], condition: String,
+                            minR: Int, maxR: Int, minS: Int, maxS: Int
+                          ): IndexedSeq[Int] = {
+
     // Create an array of tuple with the lower bounds of the one which must be greater, and the upperbounds of the
     // one which must be lower. -Int.MaxValue is prepended to the lower one to be the lowest value and take always the
     // 0th bucket, the opposite happens with the higher one. Since we don't know what's the minimum value of the
     // relation that must be larger, nor the maximum value of the relation that must be smaller.
-
-    // TODO: find general fix
-    if (quantilesR.isEmpty | quantilesS.isEmpty) {
-      return IndexedSeq()
-    }
-
-    val filledQuantilesR = quantilesR match {
-      case Seq() => IndexedSeq(Int.MinValue)
-      case _ => quantilesR
-    }
-
-    val filledQuantilesS = quantilesS match {
-      case Seq() => IndexedSeq(Int.MinValue)
-      case _ => quantilesS
-    }
 
     def indexedCartesianProduct(r: IndexedSeq[(Int, Int)], s: IndexedSeq[Int]): IndexedSeq[(Int, (Int, Int))] =
       r.flatMap { case (r, row) => s.map(s => (row, (r, s))) }
 
     val upperLowerBoundsRows = condition match {
       case "<" =>
-        indexedCartesianProduct((Int.MinValue +: filledQuantilesR).zipWithIndex, filledQuantilesS :+ Int.MaxValue)
+        indexedCartesianProduct((minR +: quantilesR).zipWithIndex, quantilesS :+ maxS)
       case ">" =>
-        indexedCartesianProduct((filledQuantilesR :+ Int.MaxValue).zipWithIndex, Int.MinValue +: filledQuantilesS)
+        indexedCartesianProduct((quantilesR :+ maxR).zipWithIndex, minS +: quantilesS)
     }
 
     val upperLowerBoundsRowMap = upperLowerBoundsRows.groupBy(identity).mapValues(_.length)
 
     val upperLowerBoundsCols = condition match {
       case "<" =>
-        indexedCartesianProduct((filledQuantilesS :+ Int.MaxValue).zipWithIndex, Int.MinValue +: filledQuantilesR)
+        indexedCartesianProduct((quantilesS :+ maxS).zipWithIndex, minR +: quantilesR)
       case ">" =>
-        indexedCartesianProduct((Int.MinValue +: filledQuantilesS).zipWithIndex, filledQuantilesR :+ Int.MaxValue)
+        indexedCartesianProduct((minS +: quantilesS).zipWithIndex, quantilesR :+ maxR)
     }
 
     val upperLowerBoundsColMap = upperLowerBoundsCols.groupBy(identity).mapValues(_.length)
@@ -195,18 +187,21 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
     val uniqueSQuantiles = quantilesS.toSet.toIndexedSeq.sorted
     val sNextPreviousValuesMap = condition match {
       case "<" =>
-        uniqueSQuantiles.zip(uniqueSQuantiles.drop(1) :+ Int.MaxValue).toMap + (Int.MaxValue -> Int.MaxValue)
+        uniqueSQuantiles.zip(uniqueSQuantiles.drop(1) :+ maxS).toMap + (maxS -> maxS)
       case ">" =>
-        uniqueSQuantiles.zip(Int.MinValue +: uniqueSQuantiles.dropRight(1)).toMap + (Int.MinValue -> Int.MinValue)
+        uniqueSQuantiles.zip(minS +: uniqueSQuantiles.dropRight(1)).toMap + (minS -> minS)
     }
 
     // Create Map of (r, nextR) over the choices of R
     val uniqueRQuantiles = quantilesR.toSet.toIndexedSeq.sorted
     val rPreviousNextValuesMap = condition match {
       case "<" =>
-        uniqueRQuantiles.zip(uniqueRQuantiles.drop(1) :+ Int.MaxValue).toMap + (Int.MinValue -> quantilesR.head)
+        uniqueRQuantiles.zip(
+          uniqueRQuantiles.drop(1) :+ maxR).toMap + (minR -> {
+          if (quantilesR.isEmpty) maxR else quantilesR.head
+        })
       case ">" =>
-        uniqueRQuantiles.zip(uniqueRQuantiles.drop(1) :+ Int.MaxValue).toMap + (Int.MaxValue -> Int.MaxValue)
+        uniqueRQuantiles.zip(uniqueRQuantiles.drop(1) :+ maxR).toMap + (maxR -> maxR)
     }
 
     // Remove indices that satisfy the condition, and return the indices only
@@ -219,19 +214,19 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
     val dePrunableTuples =
       upperLowerBoundsColMap
         .map { case (tuple, repetitions) => (tuple, canBePruned(tuple._2._2, tuple._2._1), repetitions) }
-        .flatMap { case (key, toPrune, values) => checkPruneOverCols(key, toPrune, values, rPreviousNextValuesMap(key._2._2))}
-        .map { case (key, toPrune) => ((key._1, (key._2._2, key._2._1)), toPrune)}
+        .flatMap { case (key, toPrune, values) => checkPruneOverCols(key, toPrune, values, rPreviousNextValuesMap(key._2._2)) }
+        .map { case (key, toPrune) => ((key._1, (key._2._2, key._2._1)), toPrune) }
         .toIndexedSeq
         .sortBy(_._1)
         .zipWithIndex
-        .map {case (tuple, index) => ((index % (quantilesR.length + 1), tuple._1._2), tuple._2)}
+        .map { case (tuple, index) => ((index % (quantilesR.length + 1), tuple._1._2), tuple._2) }
 
 
     // We can prune only if both pruning stages say so, merge the pruning and update pruned reducers
     val completePruning =
       prunableTuples.toIndexedSeq.sortBy(_._1)
-      .zip(dePrunableTuples.sortBy(_._1))
-      .map({ case (row, col) => (row._1, row._2 && col._2)})
+        .zip(dePrunableTuples.sortBy(_._1))
+        .map({ case (row, col) => (row._1, row._2 && col._2) })
 
 
     // Return corresponding reducers
@@ -346,7 +341,6 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
       case ">" => (tupS, tupR.filter(_ > sMin))
     }
 
-    // TODO: debugging
     if (filteredR.isEmpty | filteredS.isEmpty) {
       return Iterator[(Int, Int)]()
     }

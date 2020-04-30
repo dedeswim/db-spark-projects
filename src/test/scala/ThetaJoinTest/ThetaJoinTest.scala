@@ -50,7 +50,7 @@ class ThetaJoinTest extends AnyFunSuite {
   test("ThetaJoin.getPartitionsToPruneSmaller") {
     val quantilesS = IndexedSeq(31, 50, 50, 50, 50, 50, 50, 50, 50, 62)
     val quantilesR = IndexedSeq(27, 53, 80, 80, 80, 80, 80, 80, 80, 80)
-    val result = thetaJoin128.getPartitionsToPrune(quantilesR, quantilesS, "<").toSet
+    val result = thetaJoin128.getPartitionsToPrune(quantilesR, quantilesS, "<", Int.MinValue, Int.MaxValue, Int.MinValue, Int.MaxValue).toSet
     val expected = (33 until 120).toSet - 43 - 54 - 65 - 76 - 87 - 98 - 109 - 120 + 22 + 23
     println(expected.diff(result).toIndexedSeq.sorted)
     println(result.diff(expected).toIndexedSeq.sorted)
@@ -60,7 +60,7 @@ class ThetaJoinTest extends AnyFunSuite {
   test("ThetaJoin.getPartitionsToPruneLarger") {
     val quantilesS = IndexedSeq(31, 50, 50, 50, 50, 50, 50, 50, 50, 62)
     val quantilesR = IndexedSeq(27, 53, 80, 80, 80, 80, 80, 80, 80, 80)
-    val result = thetaJoin128.getPartitionsToPrune(quantilesR, quantilesS, ">").toSet
+    val result = thetaJoin128.getPartitionsToPrune(quantilesR, quantilesS, ">", Int.MinValue, Int.MaxValue, Int.MinValue, Int.MaxValue).toSet
     val expected = (1 to 10).toSet + 21
     println(expected.diff(result).toIndexedSeq.sorted)
     println(result.diff(expected).toIndexedSeq.sorted)
@@ -70,9 +70,9 @@ class ThetaJoinTest extends AnyFunSuite {
   test("ThetaJoin.getPartitionsToPruneLargerTransposed") {
     val quantilesR = IndexedSeq(31, 50, 50, 50, 50, 50, 50, 50, 50, 62)
     val quantilesS = IndexedSeq(27, 53, 80, 80, 80, 80, 80, 80, 80, 80)
-    val result = thetaJoin128.getPartitionsToPrune(quantilesR, quantilesS, ">").toSet
+    val result = thetaJoin128.getPartitionsToPrune(quantilesR, quantilesS, ">", Int.MinValue, Int.MaxValue, Int.MinValue, Int.MaxValue).toSet
     val expected = (0 to 120).toSet.diff((110 to 120).toSet)
-                    .diff((0 to 99 by 11).toSet).diff((1 to 100 by 11).toSet).diff((24 to 101 by 11).toSet)
+      .diff((0 to 99 by 11).toSet).diff((1 to 100 by 11).toSet).diff((24 to 101 by 11).toSet)
     println(expected.diff(result).toIndexedSeq.sorted)
     println(result.diff(expected).toIndexedSeq.sorted)
     assert(result == expected)
@@ -81,7 +81,7 @@ class ThetaJoinTest extends AnyFunSuite {
   test("ThetaJoin.getPartitionsToPruneSmallerTransposed") {
     val quantilesR = IndexedSeq(31, 50, 50, 50, 50, 50, 50, 50, 50, 62, 92)
     val quantilesS = IndexedSeq(27, 53, 80, 80, 80, 80, 80, 80, 80, 80)
-    val result = thetaJoin128.getPartitionsToPrune(quantilesR, quantilesS, "<").toSet
+    val result = thetaJoin128.getPartitionsToPrune(quantilesR, quantilesS, "<", Int.MinValue, Int.MaxValue, Int.MinValue, Int.MaxValue).toSet
     val expected = (11 to 110 by 11).toSet + 111 + 121 + 122 + 123
     println(expected.diff(result).toIndexedSeq.sorted)
     println(result.diff(expected).toIndexedSeq.sorted)
@@ -91,7 +91,7 @@ class ThetaJoinTest extends AnyFunSuite {
     test("ThetaJoin.getPartitionsToPruneLarger25") {
       val quantilesR = IndexedSeq(50, 50, 50, 50)
       val quantilesS = IndexedSeq(54, 80, 80, 80)
-      val result = thetaJoin25.getPartitionsToPrune(quantilesR, quantilesS, ">").toSet
+      val result = thetaJoin25.getPartitionsToPrune(quantilesR, quantilesS, ">", Int.MinValue, Int.MaxValue, Int.MinValue, Int.MaxValue).toSet
       val expected = (1 to 4).toSet
       println(expected.diff(result).toIndexedSeq.sorted)
       println(result.diff(expected).toIndexedSeq.sorted)
