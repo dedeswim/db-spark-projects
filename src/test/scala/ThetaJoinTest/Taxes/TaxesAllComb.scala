@@ -9,7 +9,7 @@ class TaxesAllComb extends Taxes {
       for (attrIndex1 <- 1 to 2; attrIndex2 <- 1 to 2) {
         val theta = new ThetaJoin(partitions)
         test(partitions.toString + " partitions, cond: " + condition + " attrIndex1: " + attrIndex1 + " attrIndex2: " + attrIndex2) {
-          testTaxes(250, attrIndex1, attrIndex2)(theta, condition)
+          testTaxes(500, attrIndex1, attrIndex2)(theta, condition)
         }
       }
     }

@@ -401,7 +401,7 @@ class ThetaJoin(partitions: Int) extends java.io.Serializable {
    */
   def getRegions(bucket: Int, cS: Int, cR: Int, relation: String): IndexedSeq[Int] = {
     relation match {
-      case "R" => bucket * cS until (bucket * cS + cS)
+      case "R" => bucket * cS until Math.min(partitions, (bucket * cS + cS))
       case "S" => bucket until Math.min(partitions, cR * cS) by cS
     }
   }
