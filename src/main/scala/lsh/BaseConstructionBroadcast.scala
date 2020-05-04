@@ -1,13 +1,29 @@
 package lsh
 
+import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.SQLContext
+
+import scala.collection.Map
+import scala.util.Random
 
 class BaseConstructionBroadcast(sqlContext: SQLContext, data: RDD[(String, List[String])]) extends Construction with Serializable {
   /*
   * Initialize LSH data structures here
   * You need to broadcast the data structures to all executors and use them locally
   * */
+
+  private val dictionary: Set[String] = data.flatMap(_._2).collect().toSet
+  private val mapDict: Broadcast[Map[String, Int]] =
+    sqlContext.sparkContext
+      .broadcast(Random.shuffle(dictionary.toIndexedSeq).zipWithIndex.toMap)
+  private val minHashMap: Broadcast[Map[Int, Set[String]]] = sqlContext.sparkContext.broadcast(
+    data
+      .map(t => (t._1, t._2.map(mapDict.value).min))
+      .groupBy(_._2)
+      .map(t => (t._1, t._2.map(_._1).toSet))
+      .collectAsMap()
+  )
 
   override def eval(rdd: RDD[(String, List[String])]): RDD[(String, Set[String])] = {
     /*
@@ -19,7 +35,8 @@ class BaseConstructionBroadcast(sqlContext: SQLContext, data: RDD[(String, List[
     * rdd: data points in (movie_name, [keyword_list]) format that represent the queries
     * return near-neighbors in (movie_name, [nn_movie_names]) as an RDD[(String, Set[String])]
     * */
-
-    null
+    rdd
+      .map(t => (t._1, t._2.map(mapDict.value).min))
+      .map(t => (t._1, minHashMap.value(t._2)))
   }
 }

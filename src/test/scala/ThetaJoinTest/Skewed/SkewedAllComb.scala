@@ -4,7 +4,7 @@ import thetajoin.ThetaJoin
 
 class SkewedAllComb extends Skewed {
 
-  for (partitions <- 1 to 512 by 10) {
+  for (partitions <- 1 to 512 by 5) {
     for (condition <- IndexedSeq("<", ">")) {
       for (attrIndex1 <- 0 to 1; attrIndex2 <- 0 to 1) {
           val theta = new ThetaJoin(partitions)

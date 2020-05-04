@@ -15,6 +15,16 @@ class ExactNN(sqlContext: SQLContext, data: RDD[(String, List[String])], thresho
     * return near-neighbors in (movie_name, [nn_movie_names]) as an RDD[(String, Set[String])]
     * */
 
-    null
+    rdd.cartesian(data)
+      .groupBy(_._1)
+      .map(t => (t._1._1, t._2.filter(i => jaccard(i._1._2, i._2._2) >= threshold)))
+      .map(t => (t._1, t._2.map(i => i._2._1).toSet))
+  }
+
+  def jaccard(query: List[String], data: List[String]): Double = {
+    val querySet = query.toSet
+    val dataSet = data.toSet
+    val jaccard = querySet.intersect(dataSet).size.doubleValue()/querySet.union(dataSet).size.doubleValue()
+    jaccard
   }
 }

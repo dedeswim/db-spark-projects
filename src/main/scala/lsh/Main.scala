@@ -3,8 +3,9 @@ package lsh
 import java.io.File
 
 import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.SQLContext
+import org.apache.spark.sql.{Row, SQLContext}
 import org.apache.spark.{SparkConf, SparkContext}
+import lsh.ExactNN
 
 
 object Main {
@@ -92,6 +93,8 @@ object Main {
       .map(x => x.toString.split('|'))
       .map(x => (x(0), x.slice(1, x.size).toList))
 
+//    val rdd_corpus = loadRDD(sqlContext, "/lsh-corpus-small.csv")
+
     val query_file = new File(getClass.getResource("/lsh-query-0.csv").getFile).getPath
 
     val rdd_query = sc
@@ -99,12 +102,16 @@ object Main {
       .map(x => x.toString.split('|'))
       .map(x => (x(0), x.slice(1, x.size).toList))
 
-    val exact : Construction = null
+//    val rdd_query = loadRDD(sqlContext, "/lsh-query-0.csv")
 
-    val lsh : Construction = null
+    val exact : Construction = new ExactNN(sqlContext, rdd_corpus, 0.3)
+
+    val lsh : Construction = new BaseConstruction(sqlContext, rdd_corpus)
 
     val ground = exact.eval(rdd_query)
+//    ground.collect().foreach(println)
     val res = lsh.eval(rdd_query)
+    res.collect().foreach(println)
 
     assert(recall(ground, res) > 0.83)
     assert(precision(ground, res) > 0.70)
@@ -117,8 +124,19 @@ object Main {
     val sqlContext = new org.apache.spark.sql.SQLContext(sc)
 
 
-    //query0(sc, sqlContext)
+    query0(sc, sqlContext)
     //query1(sc, sqlContext)
     //query2(sc, sqlContext)
-  }     
+  }
+
+  def loadRDD(sqlContext: SQLContext, file: String): RDD[(String, List[String])] = {
+    //val input = new File(getClass.getResource(file).getFile).getPath
+    sqlContext.read
+      .format("com.databricks.spark.csv")
+      .option("inferSchema", "true")
+      .load(s"/user/cs422$file")
+      .rdd
+      .map(x => x.toString.split('|'))
+      .map(x => (x(0), x.slice(1, x.size).toList))
+  }
 }
