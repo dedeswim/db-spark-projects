@@ -86,7 +86,7 @@ object Main {
   }
 
   def query0 (sc : SparkContext, sqlContext : SQLContext) : Unit = {
-    val corpus_file = new File(getClass.getResource("/lsh-corpus-small.csv").getFile).getPath
+    val corpus_file = new File(getClass.getResource("/lsh_test_corpus.csv").getFile).getPath
 
     val rdd_corpus = sc
       .textFile(corpus_file)
@@ -95,7 +95,7 @@ object Main {
 
 //    val rdd_corpus = loadRDD(sqlContext, "/lsh-corpus-small.csv")
 
-    val query_file = new File(getClass.getResource("/lsh-query-0.csv").getFile).getPath
+    val query_file = new File(getClass.getResource("/lsh_test_query.csv").getFile).getPath
 
     val rdd_query = sc
       .textFile(query_file)
