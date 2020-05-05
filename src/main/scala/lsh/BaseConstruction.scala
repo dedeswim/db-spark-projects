@@ -13,39 +13,28 @@ class BaseConstruction(sqlContext: SQLContext, data: RDD[(String, List[String])]
   * */
   private val seed = System.currentTimeMillis()
   Random.setSeed(seed)
-  private val dictionary: RDD[(String, Long)] = data.flatMap(_._2).distinct().zipWithIndex()
+
+  private val dictionary: RDD[(Long, String)] =
+    data
+      .flatMap(_._2)
+      .distinct()
+      .zipWithIndex()
+      .map(t => (t._2,t._1))
+  private val indices: RDD[(Long, Long)] =
+    dictionary.sparkContext
+      .parallelize(Random.shuffle((0L to dictionary.count()).toIndexedSeq))
+      .zipWithIndex()
+      .map(t => (t._2,t._1))
+  private val dictHash: RDD[(String, Long)] = dictionary.join(indices).map(_._2)
+
   private val dataProc: RDD[(Long, String)] =
     data
       .flatMap{ case (t, keys) => keys.map( (_, t))}
-      .join(dictionary)
+      .join(dictHash)
       .map{ case (_, (t, hash)) => (t, hash)}
       .groupBy(_._1)
-      .map{case (t, hl) => (t, hl.map(_._2).toList.sorted)}
-      .map{case (t, hl) => (t, Random.shuffle(hl))}
-      .map{ case (t, hl) => (hl.head, t)}
+      .map{case (t, hl) => (hl.map(_._2).min, t)}
 
-    private val test =
-      data
-        .flatMap{ case (t, keys) => keys.map( (_, t))}
-        .join(dictionary)
-        .map{ case (_, (t, hash)) => (t, hash)}
-        .groupBy(_._1)
-        .map{case (t, hl) => (t, hl.map(_._2).toList.sorted)}
-        .map{case (t, hl) => (t, Random.shuffle(hl))}
-
-
-  //  private val indices: RDD[Long] = sqlContext.sparkContext.parallelize(Random.shuffle((0 to dictionary.count()).toIndexedSeq))
-//  private val mapDict: RDD[(String, Long)] = dictionary.zip(indices)
-//  private val minHashMap: RDD[(Int, Set[String])] =
-//    data
-//    .map(t => (t._1, t._2)
-//    .groupBy(_._2)
-//    .map(t => (t._1, t._2.map(_._1).toSet))
-//    .collectAsMap()
-
-//  def computeMinHash(keywords: List[String]): Int = {
-//    keywords.map(mapDict).min
-//  }
 
   override def eval(rdd: RDD[(String, List[String])]): RDD[(String, Set[String])] = {
     /*
@@ -60,21 +49,10 @@ class BaseConstruction(sqlContext: SQLContext, data: RDD[(String, List[String])]
     val rddProc: RDD[(Long, String)] =
       rdd
         .flatMap{ case (t, keys) => keys.map( (_, t))}
-        .join(dictionary)
+        .join(dictHash)
         .map{ case (_, (t, hash)) => (t, hash)}
         .groupBy(_._1)
-        .map{case (t, hl) => (t, hl.map(_._2).toList.sorted)}
-        .map{case (t, hl) => (t, Random.shuffle(hl))}
-        .map{ case (t, hl) => (hl.head, t)}
-
-    val testRDD =
-      rdd
-        .flatMap{ case (t, keys) => keys.map( (_, t))}
-        .join(dictionary)
-        .map{ case (_, (t, hash)) => (t, hash)}
-        .groupBy(_._1)
-        .map{case (t, hl) => (t, hl.map(_._2).toList.sorted)}
-        .map{case (t, hl) => (t, Random.shuffle(hl))}
+        .map{case (t, hl) => (hl.map(_._2).min, t)}
 
     val nn: RDD[(String, Set[String])] =
       rddProc
