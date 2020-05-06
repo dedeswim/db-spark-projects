@@ -13,10 +13,14 @@ class BaseConstructionBroadcast(sqlContext: SQLContext, data: RDD[(String, List[
   * You need to broadcast the data structures to all executors and use them locally
   * */
 
+  private val seed = System.currentTimeMillis()
+  Random.setSeed(seed)
+
   private val dictionary: Set[String] = data.flatMap(_._2).collect().toSet
   private val mapDict: Broadcast[Map[String, Int]] =
     sqlContext.sparkContext
       .broadcast(Random.shuffle(dictionary.toIndexedSeq).zipWithIndex.toMap)
+
   private val minHashMap: Broadcast[Map[Int, Set[String]]] = sqlContext.sparkContext.broadcast(
     data
       .map(t => (t._1, t._2.map(mapDict.value).min))
@@ -36,7 +40,10 @@ class BaseConstructionBroadcast(sqlContext: SQLContext, data: RDD[(String, List[
     * return near-neighbors in (movie_name, [nn_movie_names]) as an RDD[(String, Set[String])]
     * */
     rdd
-      .map(t => (t._1, t._2.map(mapDict.value).min))
-      .map(t => (t._1, minHashMap.value(t._2)))
+      .map(t => (t._1, t._2.map(x => mapDict.value.get(x)).min))
+      .filter(_._2.isDefined)
+      .map(t => (t._1, minHashMap.value.get(t._2.get)))
+      .filter(_._2.isDefined)
+      .map(t => (t._1, t._2.get))
   }
 }
