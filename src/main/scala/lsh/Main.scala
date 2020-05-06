@@ -3,13 +3,12 @@ package lsh
 import java.io.File
 
 import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.{Row, SQLContext}
+import org.apache.spark.sql.SQLContext
 import org.apache.spark.{SparkConf, SparkContext}
-import lsh.ExactNN
 
 
 object Main {
-  def recall(ground_truth : RDD[(String, Set[String])], lsh_truth : RDD[(String, Set[String])]) : Double = {
+  def recall(ground_truth: RDD[(String, Set[String])], lsh_truth: RDD[(String, Set[String])]): Double = {
     /*
     * Compute the recall for each near-neighbor LSH query against the accurate result
     * Then, compute the average across all queries
@@ -18,10 +17,17 @@ object Main {
     * returns average recall
     * */
 
-    0.0
+    val results =
+      ground_truth
+        .join(lsh_truth)
+        .map(_._2)
+        .map { case (exact, estimated) => exact.intersect(estimated).size.toDouble / exact.size.toDouble }
+        .sum()
+
+    results / lsh_truth.count()
   }
 
-  def precision(ground_truth : RDD[(String, Set[String])], lsh_truth : RDD[(String, Set[String])]) : Double = {
+  def precision(ground_truth: RDD[(String, Set[String])], lsh_truth: RDD[(String, Set[String])]): Double = {
     /*
     * Compute the precision for each near-neighbor LSH query against the accurate result
     * Then, compute the average across all queries
@@ -30,10 +36,17 @@ object Main {
     * returns average precision
     * */
 
-    0.0
+    val results =
+      ground_truth
+        .join(lsh_truth)
+        .map(_._2)
+        .map { case (exact, estimated) => exact.intersect(estimated).size.toDouble / estimated.size.toDouble }
+        .sum()
+
+    results / lsh_truth.count()
   }
 
-  def query1 (sc : SparkContext, sqlContext : SQLContext) : Unit = {
+  def query1(sc: SparkContext, sqlContext: SQLContext): Unit = {
     val corpus_file = new File(getClass.getResource("/lsh-corpus-small.csv").getFile).getPath
 
     val rdd_corpus = sc
@@ -48,9 +61,9 @@ object Main {
       .map(x => x.toString.split('|'))
       .map(x => (x(0), x.slice(1, x.size).toList))
 
-    val exact : Construction = null
+    val exact: Construction = null
 
-    val lsh : Construction = null
+    val lsh: Construction = null
 
     val ground = exact.eval(rdd_query)
     val res = lsh.eval(rdd_query)
@@ -59,7 +72,7 @@ object Main {
     assert(precision(ground, res) > 0.98)
   }
 
-  def query2 (sc : SparkContext, sqlContext : SQLContext) : Unit = {
+  def query2(sc: SparkContext, sqlContext: SQLContext): Unit = {
     val corpus_file = new File(getClass.getResource("/lsh-corpus-small.csv").getFile).getPath
 
     val rdd_corpus = sc
@@ -74,9 +87,9 @@ object Main {
       .map(x => x.toString.split('|'))
       .map(x => (x(0), x.slice(1, x.size).toList))
 
-    val exact : Construction = null
+    val exact: Construction = null
 
-    val lsh : Construction = null
+    val lsh: Construction = null
 
     val ground = exact.eval(rdd_query)
     val res = lsh.eval(rdd_query)
@@ -85,7 +98,7 @@ object Main {
     assert(precision(ground, res) > 0.45)
   }
 
-  def query0 (sc : SparkContext, sqlContext : SQLContext) : Unit = {
+  def query0(sc: SparkContext, sqlContext: SQLContext): Unit = {
     val corpus_file = new File(getClass.getResource("/lsh_test_corpus.csv").getFile).getPath
 
     val rdd_corpus = sc
@@ -93,7 +106,7 @@ object Main {
       .map(x => x.toString.split('|'))
       .map(x => (x(0), x.slice(1, x.size).toList))
 
-//    val rdd_corpus = loadRDD(sqlContext, "/lsh-corpus-small.csv")
+    //    val rdd_corpus = loadRDD(sqlContext, "/lsh-corpus-small.csv")
 
     val query_file = new File(getClass.getResource("/lsh_test_query.csv").getFile).getPath
 
@@ -102,16 +115,19 @@ object Main {
       .map(x => x.toString.split('|'))
       .map(x => (x(0), x.slice(1, x.size).toList))
 
-//    val rdd_query = loadRDD(sqlContext, "/lsh-query-0.csv")
+    //    val rdd_query = loadRDD(sqlContext, "/lsh-query-0.csv")
 
-    val exact : Construction = new ExactNN(sqlContext, rdd_corpus, 0.3)
+    val exact: Construction = new ExactNN(sqlContext, rdd_corpus, 0.3)
 
-    val lsh : Construction = new BaseConstruction(sqlContext, rdd_corpus)
+    val lsh: Construction = CompositeConstruction.orAndBase(sqlContext, rdd_corpus, 5, 9)
 
     val ground = exact.eval(rdd_query)
-//    ground.collect().foreach(println)
+    //    ground.collect().foreach(println)
     val res = lsh.eval(rdd_query)
     res.collect().foreach(println)
+
+    print(s"Recall: ${recall(ground, res)}")
+    print(s"Precision: ${precision(ground, res)}")
 
     assert(recall(ground, res) > 0.83)
     assert(precision(ground, res) > 0.70)
