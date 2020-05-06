@@ -1,5 +1,7 @@
 package rollup
 
+import java.io.File
+
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.functions._
@@ -9,21 +11,22 @@ object Main {
     val spark = SparkSession
       .builder()
       .appName("Project2-group-15")
-      // .master("local[*]")
+      .master("local[*]")
       .getOrCreate()
 
 
-    // val input = new File(getClass.getResource("/lineorder_small.tbl").getFile).getPath
+    val input = new File(getClass.getResource("/lineorder_small.tbl").getFile).getPath
     val df = spark.sqlContext.read
       .format("com.databricks.spark.csv")
       .option("header", "true")
       .option("inferSchema", "true")
       .option("delimiter", "|")
-      .load("/user/cs422/lineorder_big.tbl")
+      // .load("/user/cs422/lineorder_big.tbl")
+      .load(input)
 
     val rdd = df.rdd
 
-    var groupingList = List(4, 0, 1, 3, 16)
+    val groupingList = List(4, 0, 1, 3, 16)
     val rollup = new RollupOperator
 
     // val res = rollup.rollup_naive(rdd, groupingList, 8, "AVG")

@@ -142,8 +142,8 @@ class RollupOperator() extends Serializable {
     // If there are no more indices left, return the final result
     // Otherwise, recurse to the next aggregation level, passing the current results as accumulator
     groupingIndices match {
-      case Nil => aggregated.union(datasetAccumulator)
-      case _ => rollup_indices(groupingIndices.dropRight(1), aggregated, aggregated.union(datasetAccumulator), agg)
+      case Nil => aggregated.union(datasetAccumulator).union(lastAggregated)
+      case _ => rollup_indices(groupingIndices.dropRight(1), aggregated, lastAggregated.union(datasetAccumulator), agg)
     }
 
   }
