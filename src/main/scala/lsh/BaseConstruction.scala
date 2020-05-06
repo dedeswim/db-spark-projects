@@ -27,13 +27,15 @@ class BaseConstruction(sqlContext: SQLContext, data: RDD[(String, List[String])]
       .map(t => (t._2,t._1))
   private val dictHash: RDD[(String, Long)] = dictionary.join(indices).map(_._2)
 
-  private val dataProc: RDD[(Long, String)] =
+  private val dataProc: RDD[(Long, Set[String])] =
     data
       .flatMap{ case (t, keys) => keys.map( (_, t))}
       .join(dictHash)
       .map{ case (_, (t, hash)) => (t, hash)}
       .groupBy(_._1)
-      .map{case (t, hl) => (hl.map(_._2).min, t)}
+      .map{ case (t, hl) => (hl.map(_._2).min, t)}
+      .groupBy(_._1)
+      .map{ case (h, films) => (h, films.map(_._2).toSet)}
 
 
   override def eval(rdd: RDD[(String, List[String])]): RDD[(String, Set[String])] = {
@@ -58,8 +60,6 @@ class BaseConstruction(sqlContext: SQLContext, data: RDD[(String, List[String])]
       rddProc
       .join(dataProc)
       .map{ case (_, t) => t}
-      .groupBy(_._1)
-      .map{case (q, nn) => (q, nn.map(_._2).toSet)}
 
     nn
   }
