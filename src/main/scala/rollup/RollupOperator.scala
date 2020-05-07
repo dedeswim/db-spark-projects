@@ -110,7 +110,7 @@ class RollupOperator() extends Serializable {
     // Otherwise, recurse to the next aggregation level, passing the current results as accumulator
     groupingAttributeIndexes match {
       case Nil => aggregated
-      case _ => rollup_indices(groupingAttributeIndexes.indices.dropRight(1).toList, aggregated, aggregated, agg)
+      case _ => rollup_indices(groupingAttributeIndexes.indices.dropRight(1).toList, aggregated, dataset.sparkContext.emptyRDD[(List[Any], Double, Int)], agg)
     }
 
   }
