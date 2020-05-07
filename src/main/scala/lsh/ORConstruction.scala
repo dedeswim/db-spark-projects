@@ -12,9 +12,9 @@ class ORConstruction(children: List[Construction]) extends Construction {
     * */
 
     children
-      .map(c => c.eval(rdd))
-      .reduce((a, b) => a.union(b))
-      .reduceByKey((a, b) => a.union(b))
+      .map(_.eval(rdd))
+      .reduce((rddA, rddB) => rddA.union(rddB))
+      .reduceByKey((queryPoint, neighbors) => queryPoint.union(neighbors))
 
   }
 }
