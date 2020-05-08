@@ -43,6 +43,7 @@ object Main {
       for (partitions <- partitionsL) {
         for (condition <- conditions) {
           for (attrIndex1 <- 1 to 2; attrIndex2 <- 1 to 2) {
+            println(s"Limit: $n, Partitions: $partitions, condition: $condition, attrIndex1: $attrIndex1, attrIndex2: $attrIndex2")
             val (resList, avg, std) = measureStatistics(rdd1, rdd2, partitions, attrIndex1, attrIndex2, condition)
             val resRun = spark.sparkContext.parallelize(List((partitions, condition, attrIndex1, attrIndex2, resList, avg, std)))
             results = results.union(resRun)
