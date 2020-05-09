@@ -1,0 +1,1 @@
+Results obtained with --executor-memory 16g --executor-cores 8 --num-executors 4 --driver-memory 4g
