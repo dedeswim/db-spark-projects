@@ -50,17 +50,17 @@ object Main {
           }
         }
       }
-      results.coalesce(1, shuffle = true).saveAsTextFile(s"/user/group-15/results_thetajoin_count2_$n")
+      results.sortBy(t => (t._1, t._2, t._3, t._4)).coalesce(1, shuffle = true).saveAsTextFile(s"/user/group-15/results_thetajoin_count6_$n")
       rdd1.unpersist()
       rdd2.unpersist()
     }
 
 //    println("----------------------")
-    // use the cartesian product to verify correctness of your result
+//     use the cartesian product to verify correctness of your result
 //    val cartesianRes = rdd1.cartesian(rdd2)
 //      .filter(x => x._1(attrIndex1).asInstanceOf[Int] > x._2(attrIndex2).asInstanceOf[Int])
 //      .map(x => (x._1(attrIndex1).asInstanceOf[Int], x._2(attrIndex2).asInstanceOf[Int]))
-    // cartesianRes.foreach(x => println(x))
+//     cartesianRes.foreach(x => println(x))
 
 
     //    assert(res.sortBy(x => (x._1, x._2)).collect().toList.equals(cartesianRes.sortBy(x => (x._1, x._2)).collect.toList))
@@ -134,17 +134,14 @@ object Main {
       }
     }
 
-  def time[T](f: => T) : Double = {
-    val start = System.nanoTime()
-    f
-    val end = System.nanoTime()
-    (end - start)/1e9
-  }
 
   def measureOneComputation(rdd1: RDD[Row], rdd2: RDD[Row], partitions: Int, attrIndex1: Int, attrIndex2: Int, condition: String): Double = {
+    val start = System.nanoTime()
     val thetaJoin = new ThetaJoin(partitions)
     val res = thetaJoin.ineq_join(rdd1, rdd2, attrIndex1, attrIndex2, condition)
-    time(res.count())
+    res.count()
+    val end = System.nanoTime()
+    (end - start)/1e9
   }
 
   def measureStatistics(rdd1: RDD[Row], rdd2: RDD[Row], partitions: Int, attrIndex1: Int, attrIndex2: Int, condition: String, runs: Int = 5): (List[Double], Double, Double) = {
