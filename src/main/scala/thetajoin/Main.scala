@@ -50,7 +50,7 @@ object Main {
           }
         }
       }
-      results.coalesce(1, shuffle = true).saveAsTextFile(s"/user/group-15/results_thetajoin_$n.txt")
+      results.coalesce(1, shuffle = true).saveAsTextFile(s"/user/group-15/results_thetajoin_count2_$n")
       rdd1.unpersist()
       rdd2.unpersist()
     }
@@ -122,14 +122,14 @@ object Main {
   }
 
   def doWarmUp(rdd1: RDD[Row], rdd2: RDD[Row]): Unit = {
-    val partitionsL = List(1, 128)
+    val partitionsL = List(1, 64, 128)
     for (partitions <- partitionsL) {
       for (condition <- IndexedSeq("<", ">")) {
           val thetaJoin = new ThetaJoin(partitions)
         val res1 = thetaJoin.ineq_join(rdd1, rdd2, 1, 1, condition)
-        res1.collect()
+        res1.count()
         val res2 = thetaJoin.ineq_join(rdd1, rdd2, 2, 2, condition)
-        res2.collect()
+        res2.count()
         }
       }
     }
@@ -144,7 +144,7 @@ object Main {
   def measureOneComputation(rdd1: RDD[Row], rdd2: RDD[Row], partitions: Int, attrIndex1: Int, attrIndex2: Int, condition: String): Double = {
     val thetaJoin = new ThetaJoin(partitions)
     val res = thetaJoin.ineq_join(rdd1, rdd2, attrIndex1, attrIndex2, condition)
-    time(res.collect())
+    time(res.count())
   }
 
   def measureStatistics(rdd1: RDD[Row], rdd2: RDD[Row], partitions: Int, attrIndex1: Int, attrIndex2: Int, condition: String, runs: Int = 5): (List[Double], Double, Double) = {
