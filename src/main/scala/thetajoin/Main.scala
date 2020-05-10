@@ -1,10 +1,8 @@
 package thetajoin
 
-import java.io.File
-
 import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.{Row, SQLContext, SparkSession}
-import Numeric.Implicits._
+import org.apache.spark.sql.Row
+import utils.Utils._
 
 
 object Main {
@@ -20,17 +18,17 @@ object Main {
     }
 
     val filename1 = "taxA4K.csv"
-    val filepath1 = getFilePath(cluster, filename1)
+    val filePath1 = getFilePath(cluster, filename1)
     val filename2 = "taxB4K.csv"
-    val filepath2 = getFilePath(cluster, filename2)
+    val filePath2 = getFilePath(cluster, filename2)
 
-//    val rdd1 = loadRDD(spark.sqlContext, "/skewed_data.csv")
-//    val rdd2 = loadRDD(spark.sqlContext, "/skewed_data.csv")
+    //    val rdd1 = loadRDD(spark.sqlContext, "/skewed_data.csv")
+    //    val rdd2 = loadRDD(spark.sqlContext, "/skewed_data.csv")
 
     for (n <- 1000 to 4000 by 1000) {
 
-      val rdd1 = loadRDD(spark.sqlContext, filepath1, cluster, n).cache()
-      val rdd2 = loadRDD(spark.sqlContext, filepath2, cluster, n).cache()
+      val rdd1 = loadRDD(spark.sqlContext, filePath1, cluster, n).cache()
+      val rdd2 = loadRDD(spark.sqlContext, filePath2, cluster, n).cache()
 
       println("Starting warm-up...")
       doWarmUp(rdd1, rdd2)
@@ -50,17 +48,21 @@ object Main {
           }
         }
       }
-      results.sortBy(t => (t._1, t._2, t._3, t._4)).coalesce(1, shuffle = true).saveAsTextFile(s"/user/group-15/results_thetajoin_count6_$n")
+      results
+        .sortBy(t => (t._1, t._2, t._3, t._4))
+        .coalesce(1, shuffle = true)
+        .saveAsTextFile(s"/user/group-15/results_thetajoin_count6_$n")
+
       rdd1.unpersist()
       rdd2.unpersist()
     }
 
-//    println("----------------------")
-//     use the cartesian product to verify correctness of your result
-//    val cartesianRes = rdd1.cartesian(rdd2)
-//      .filter(x => x._1(attrIndex1).asInstanceOf[Int] > x._2(attrIndex2).asInstanceOf[Int])
-//      .map(x => (x._1(attrIndex1).asInstanceOf[Int], x._2(attrIndex2).asInstanceOf[Int]))
-//     cartesianRes.foreach(x => println(x))
+    //    println("----------------------")
+    //     use the cartesian product to verify correctness of your result
+    //    val cartesianRes = rdd1.cartesian(rdd2)
+    //      .filter(x => x._1(attrIndex1).asInstanceOf[Int] > x._2(attrIndex2).asInstanceOf[Int])
+    //      .map(x => (x._1(attrIndex1).asInstanceOf[Int], x._2(attrIndex2).asInstanceOf[Int]))
+    //     cartesianRes.foreach(x => println(x))
 
 
     //    assert(res.sortBy(x => (x._1, x._2)).collect().toList.equals(cartesianRes.sortBy(x => (x._1, x._2)).collect.toList))
@@ -72,68 +74,27 @@ object Main {
     //    println(s"Assertion Took ${(endAssert - startAssert).floatValue() / 1000}s")
   }
 
-  def loadRDD(sqlContext: SQLContext, file: String, cluster: Boolean, limit: Int = 4000): RDD[Row] = {
-
-    val partial =
-      sqlContext.read
-      .format("com.databricks.spark.csv")
-      .option("header", "false")
-      .option("inferSchema", "true")
-      .option("delimiter", ",")
-
-    val loaded = if (cluster) {
-        partial
-          .load(file)
-    } else {
-      val input = new File(getClass.getResource(file).getFile).getPath
-      partial
-          .load(input)
-    }
-    loaded
-      .limit(limit)
-      .rdd
-  }
-
-  def runOnCluster(): SparkSession = {
-    val spark = SparkSession
-      .builder()
-      .appName("Project2-group-15")
-      .getOrCreate()
-
-    spark
-  }
-
-  def runOnLocal(): SparkSession = {
-    val spark = SparkSession
-      .builder()
-      .appName("Project2-group-15")
-      .master("local[*]")
-      .getOrCreate()
-
-    spark
-  }
-
-  def getFilePath(cluster: Boolean, filename: String): String = {
-    if (cluster) {
-      s"/user/cs422/$filename"
-    } else {
-      s"/$filename"
-    }
-  }
-
   def doWarmUp(rdd1: RDD[Row], rdd2: RDD[Row]): Unit = {
     val partitionsL = List(1, 64, 128)
     for (partitions <- partitionsL) {
       for (condition <- IndexedSeq("<", ">")) {
-          val thetaJoin = new ThetaJoin(partitions)
+        val thetaJoin = new ThetaJoin(partitions)
         val res1 = thetaJoin.ineq_join(rdd1, rdd2, 1, 1, condition)
         res1.count()
         val res2 = thetaJoin.ineq_join(rdd1, rdd2, 2, 2, condition)
         res2.count()
-        }
       }
     }
+  }
 
+  def measureStatistics(rdd1: RDD[Row], rdd2: RDD[Row], partitions: Int, attrIndex1: Int, attrIndex2: Int, condition: String, runs: Int = 5): (List[Double], Double, Double) = {
+    var time_list = List[Double]()
+    for (_ <- 0 until runs) {
+      val t = measureOneComputation(rdd1, rdd2, partitions, attrIndex1, attrIndex2, condition)
+      time_list = t :: time_list
+    }
+    (time_list, mean(time_list), stdDev(time_list))
+  }
 
   def measureOneComputation(rdd1: RDD[Row], rdd2: RDD[Row], partitions: Int, attrIndex1: Int, attrIndex2: Int, condition: String): Double = {
     val start = System.nanoTime()
@@ -141,25 +102,7 @@ object Main {
     val res = thetaJoin.ineq_join(rdd1, rdd2, attrIndex1, attrIndex2, condition)
     res.count()
     val end = System.nanoTime()
-    (end - start)/1e9
+    (end - start) / 1e9
   }
-
-  def measureStatistics(rdd1: RDD[Row], rdd2: RDD[Row], partitions: Int, attrIndex1: Int, attrIndex2: Int, condition: String, runs: Int = 5): (List[Double], Double, Double) = {
-    var time_list = List[Double]()
-    for (_ <-0 until runs) {
-      val t = measureOneComputation(rdd1, rdd2, partitions, attrIndex1, attrIndex2, condition)
-      time_list = t :: time_list
-    }
-    (time_list, mean(time_list), stdDev(time_list))
-  }
-
-  def mean[T: Numeric](xs: Iterable[T]): Double = xs.sum.toDouble / xs.size
-
-  def variance[T: Numeric](xs: Iterable[T]): Double = {
-    val avg = mean(xs)
-    xs.map(_.toDouble).map(a => math.pow(a - avg, 2)).sum / xs.size
-  }
-
-  def stdDev[T: Numeric](xs: Iterable[T]): Double = math.sqrt(variance(xs))
 
 }
