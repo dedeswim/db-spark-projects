@@ -24,7 +24,7 @@ object Main {
       runOnLocal()
     }
 
-    val filenames = IndexedSeq("lineorder_small.tbl", "lineorder_medium.tbl") //, "lineorder_big.tbl")
+    val filenames = IndexedSeq("lineorder_big.tbl") // lineorder_small.tbl", "lineorder_medium.tbl")
 
     for (filename <- filenames) {
       // size, n_indices, results, avg, std
