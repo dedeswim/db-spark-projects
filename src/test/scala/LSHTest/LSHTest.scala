@@ -62,4 +62,50 @@ class LSHTest extends AnyFunSuite {
     val requiredPrecision = 0.45
     query(queryFile, CompositeConstruction.andOrBroadcast, 5, 5, requiredPrecision, requiredRecall)
   }
+
+  test("precisionRecall1") {
+    val ground = spark.parallelize(IndexedSeq(
+      ("a", Set("b", "c", "d")),
+      ("b", Set("b", "c", "d")),
+      ("c", Set("b", "c", "d")),
+      ("d", Set("b", "c", "d")),
+      ("e", Set("b", "c", "d"))
+    ))
+
+    val lsh = spark.parallelize(IndexedSeq(
+      ("a", Set("b", "c", "d")),
+      ("b", Set("b", "c", "d")),
+      ("c", Set("b", "c", "d")),
+      ("d", Set("b", "c", "d")),
+      ("e", Set("b", "c", "d"))
+    ))
+
+    assert(precision(ground, lsh) == 1)
+    assert(recall(ground, lsh) == 1)
+  }
+
+  test("precisionRecall2") {
+    val ground = spark.parallelize(IndexedSeq(
+      ("a", Set("b", "c", "d")),
+      ("b", Set("b", "c", "d")),
+      ("c", Set("b", "c", "d")),
+      ("d", Set("b", "c", "d"))
+    ))
+
+    val lsh = spark.parallelize(IndexedSeq(
+      ("a", Set("b", "c", "d")), // precision: 1, recall 1
+      ("b", Set("b", "c", "e")), // precision: 2 / 3, recall: 2 / 3
+      ("c", Set("b", "g")), // precision: 1 / 2, recall: 1/3
+      ("d", Set("b", "c", "d", "e", "f", "g")) // precision: 1 / 2, recall = 1
+    ))
+
+    val precisionResult = precision(ground, lsh)
+    val recallResult = recall(ground, lsh)
+
+    println(precisionResult)
+    println(recallResult)
+
+    assert(((2 doubleValue()) / (3 doubleValue())) == precisionResult)
+    assert((3 doubleValue()) / (4 doubleValue()) == recallResult)
+  }
 }
