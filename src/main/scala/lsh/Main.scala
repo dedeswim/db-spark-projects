@@ -2,24 +2,23 @@ package lsh
 
 import java.io.File
 
+import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.SQLContext
-import org.apache.spark.{SparkConf, SparkContext}
+import utils.Utils.{runOnCluster, runOnLocal}
 
 
 object Main {
-  private val conf = new SparkConf().setAppName("Session-group-15")
-  private val sc = SparkContext.getOrCreate(conf)
+  private val cluster = false
+  private val sc = if (cluster) {
+    runOnCluster().sparkContext
+  } else {
+    runOnLocal().sparkContext
+  }
   private val sqlContext = new org.apache.spark.sql.SQLContext(sc)
   private val corpusFile = "/lsh-corpus-small.csv"
   private val rddCorpus = loadRDD(sc, corpusFile).cache()
   private val exact: Construction = new ExactNN(sqlContext, rddCorpus, 0.3)
-  private val getQueryFileName = (x: Int) => s"lsh-query-$x.csv"
-  private val REQUIRED_PRECISIONS_RECALLS = IndexedSeq(
-    (0.83, 0.70),
-    (0.7, 0.98),
-    (0.9, 0.45)
-  )
+  private val getQueryFileName = (x: Int) => s"/lsh-query-$x.csv"
 
   private def computeMetric(ground_truth: RDD[(String, Set[String])], lsh_truth: RDD[(String, Set[String])], singleMetric: (Set[String], Set[String]) => Double): Double = {
     val results = ground_truth
@@ -60,57 +59,66 @@ object Main {
     )
   }
 
-  def query(queryFile: String,
-            composite: (SQLContext, RDD[(String, List[String])], Int, Int) => CompositeConstruction,
-            r: Int,
-            b: Int,
-            requiredPrecision: Double,
-            requiredRecall: Double): Unit = {
-
-    val rddCorpus = loadRDD(sc, corpusFile)
-    val rddQuery = loadRDD(sc, queryFile)
-
-    val exact: Construction = new ExactNN(sqlContext, rddCorpus, 0.3)
-    val lsh: Construction = composite(sqlContext, rddCorpus, r, b)
-
-    val ground = exact.eval(rddQuery)
-    val res = lsh.eval(rddQuery)
-
-    val resultRecall = recall(ground, res)
-    val resultPrecision = precision(ground, res)
-    println(s"Recall: $resultRecall")
-    println(s"Precision: $resultPrecision")
-
-    assert(resultRecall > requiredRecall)
-    assert(resultPrecision > requiredPrecision)
-  }
-
   def main(args: Array[String]) {
-    // Query 0
-    val (precisionO, recall0) = REQUIRED_PRECISIONS_RECALLS(0)
-    val (r0, b0) = (1, 1)
-    val query0Construction = CompositeConstruction.andOrBase(sqlContext, rddCorpus, r0, b0)
-    val query0ConstructionBroadcast = CompositeConstruction.andOrBroadcast(sqlContext, rddCorpus, r0, b0)
-    query(getQueryFileName(0), query0Construction, precisionO, recall0)
-    query(getQueryFileName(0), query0ConstructionBroadcast, precisionO, recall0)
-
+    val n = 10
+    query0(n)
+    // query1(n)
+    // query2(n)
   }
 
-  def query(queryFile: String,
-            construction: Construction,
-            reqPrecision: Double,
-            reqRecall: Double): Unit = {
+  private def query0(n: Int): Unit = {
+    // Query 0 -> Tradeoff between FPs and FNs, but rec > pr so we should keep FNs low, thus we use AND+OR
+    val RECALL = 0.83
+    val PRECISION = 0.70
+    val (r, b) = (2, 2)
+    val queryRdd = loadRDD(sc, getQueryFileName(0)).cache()
+    val ground = exact.eval(queryRdd).cache()
+    val constructionBuilder = () => CompositeConstruction.andOrBase(sqlContext, rddCorpus, r, b)
+    val correctPercentage = query(constructionBuilder, ground, queryRdd, PRECISION, RECALL, n)
+    println(s"Correct percentage query 0: $correctPercentage")
+  }
 
-    val queryRdd = loadRDD(sc, queryFile)
+  private def query1(n: Int): Unit = {
+    // Query 1 -> Recall is kinda low and precision is high, we should avoid FPs, we can admit more FNs, we use AND
+    val RECALL = 0.7
+    val PRECISION = 0.98
+    val r = 3
+    val queryRdd = loadRDD(sc, getQueryFileName(1)).cache()
+    val ground = exact.eval(queryRdd).cache()
+    val constructionBuilder = () => ANDConstruction.getConstructionBroadcast(sqlContext, rddCorpus, r)
+    val correctPercentage = query(constructionBuilder, ground, queryRdd, PRECISION, RECALL, n)
+    println(s"Correct percentage query 1: $correctPercentage")
+  }
 
-    val ground = exact.eval(queryRdd)
-    val res = construction.eval(queryRdd)
+  def query(constructionBuilder: () => Construction, ground: RDD[(String, Set[String])],
+            queryRdd: RDD[(String, List[String])], reqPrecision: Double, reqRecall: Double, times: Int = 1): Double = {
 
-    val queryPrecision = precision(ground, res)
-    val queryRecall = recall(ground, res)
+    var correctResults = 0
 
-    assert(queryPrecision > reqPrecision)
-    assert(queryRecall > reqRecall)
+    for (_ <- 0 until times) {
+      val construction = constructionBuilder()
+      val res = construction.eval(queryRdd)
+      val queryPrecision = precision(ground, res)
+      val queryRecall = recall(ground, res)
+
+      if (queryPrecision > reqPrecision & queryRecall > reqRecall) {
+        correctResults += 1
+      }
+    }
+
+    correctResults.doubleValue() / times.doubleValue()
+  }
+
+  private def query2(n: Int): Unit = {
+    // Query 2 -> Recall is high and precision is low, we should avoid FNs, we can admit more FPs, we use OR with b = 3
+    val RECALL = 0.9
+    val PRECISION = 0.45
+    val b = 3
+    val queryRdd = loadRDD(sc, getQueryFileName(2)).cache()
+    val ground = exact.eval(queryRdd).cache()
+    val constructionBuilder = () => ORConstruction.getConstructionBroadcast(b, sqlContext, rddCorpus)
+    val correctPercentage = query(constructionBuilder, ground, queryRdd, PRECISION, RECALL, n)
+    println(s"Correct percentage query 2: $correctPercentage")
   }
 
   def loadRDD(sc: SparkContext, filename: String): RDD[(String, List[String])] = {

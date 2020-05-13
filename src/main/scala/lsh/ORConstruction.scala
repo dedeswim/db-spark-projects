@@ -1,6 +1,7 @@
 package lsh
 
 import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.SQLContext
 
 class ORConstruction(children: List[Construction]) extends Construction {
   override def eval(rdd: RDD[(String, List[String])]): RDD[(String, Set[String])] = {
@@ -16,5 +17,17 @@ class ORConstruction(children: List[Construction]) extends Construction {
       .reduce((rddA, rddB) => rddA.union(rddB))
       .reduceByKey((queryPoint, neighbors) => queryPoint.union(neighbors))
 
+  }
+}
+
+object ORConstruction {
+  def getConstructionBase(b: Int, sqlContext: SQLContext, data: RDD[(String, List[String])]): ORConstruction = {
+    val innerConstructions = List.fill(b)(new BaseConstruction(sqlContext, data))
+    new ORConstruction(innerConstructions)
+  }
+
+  def getConstructionBroadcast(b: Int, sqlContext: SQLContext, data: RDD[(String, List[String])]): ORConstruction = {
+    val innerConstructions = List.fill(b)(new BaseConstructionBroadcast(sqlContext, data))
+    new ORConstruction(innerConstructions)
   }
 }

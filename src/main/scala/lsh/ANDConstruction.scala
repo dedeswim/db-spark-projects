@@ -1,5 +1,6 @@
 package lsh
 import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.SQLContext
 
 class ANDConstruction(children: List[Construction]) extends Construction {
   override def eval(rdd: RDD[(String, List[String])]): RDD[(String, Set[String])] = {
@@ -16,3 +17,16 @@ class ANDConstruction(children: List[Construction]) extends Construction {
       .reduceByKey((queryPoint, neighbors) => queryPoint.intersect(neighbors))
   }
 }
+
+object ANDConstruction {
+  def getConstructionBase(sqlContext: SQLContext, data: RDD[(String, List[String])], r: Int): ANDConstruction = {
+    val innerConstructions = List.fill(r)(new BaseConstruction(sqlContext, data))
+    new ANDConstruction(innerConstructions)
+  }
+
+  def getConstructionBroadcast(sqlContext: SQLContext, data: RDD[(String, List[String])], r: Int): ANDConstruction = {
+    val innerConstructions = List.fill(r)(new BaseConstructionBroadcast(sqlContext, data))
+    new ANDConstruction(innerConstructions)
+  }
+}
+
