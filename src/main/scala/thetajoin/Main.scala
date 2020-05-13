@@ -36,7 +36,7 @@ object Main {
       println("----------------------------------------------------------------")
 
       var results = spark.sparkContext.emptyRDD[(Int, String, Int, Int, List[Double], Double, Double)]
-      val partitionsL = IndexedSeq(1, 2, 4, 8, 16, 32, 64, 128, 256, 512)
+      val partitionsL = IndexedSeq(1,2,4,8,16,32,64,128,256,512)
       val conditions = IndexedSeq("<", ">")
       for (partitions <- partitionsL) {
         for (condition <- conditions) {
@@ -51,7 +51,7 @@ object Main {
       results
         .sortBy(t => (t._1, t._2, t._3, t._4))
         .coalesce(1, shuffle = true)
-        .saveAsTextFile(s"/user/group-15/results_thetajoin_count6_$n")
+        .saveAsTextFile(s"/user/group-15/results_thetajoin_count7_$n")
 
       rdd1.unpersist()
       rdd2.unpersist()
@@ -80,9 +80,9 @@ object Main {
       for (condition <- IndexedSeq("<", ">")) {
         val thetaJoin = new ThetaJoin(partitions)
         val res1 = thetaJoin.ineq_join(rdd1, rdd2, 1, 1, condition)
-        res1.count()
+        print(res1.count())
         val res2 = thetaJoin.ineq_join(rdd1, rdd2, 2, 2, condition)
-        res2.count()
+        print(res2.count())
       }
     }
   }
@@ -100,7 +100,7 @@ object Main {
     val start = System.nanoTime()
     val thetaJoin = new ThetaJoin(partitions)
     val res = thetaJoin.ineq_join(rdd1, rdd2, attrIndex1, attrIndex2, condition)
-    res.count()
+    print(res.count())
     val end = System.nanoTime()
     (end - start) / 1e9
   }
