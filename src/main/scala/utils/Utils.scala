@@ -44,13 +44,8 @@ object Utils {
     }
   }
 
-  def loadRDD(sqlContext: SQLContext,
-              file: String,
-              cluster: Boolean,
-              limit: Int = 4000,
-              toLimit: Boolean = true,
-              delimiter: String = ",",
-              header: String = "false"): RDD[Row] = {
+  def loadRDD(sqlContext: SQLContext, file: String, cluster: Boolean, limit: Int = 4000,
+              toLimit: Boolean = true, delimiter: String = ",", header: String = "false"): RDD[Row] = {
 
     val partial =
       sqlContext.read
