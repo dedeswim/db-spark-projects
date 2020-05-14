@@ -7,7 +7,7 @@ import org.apache.spark.sql.{Row, SQLContext, SparkSession}
 
 import scala.Numeric.Implicits._
 
-object Utils {
+object Utils extends Serializable {
   def runOnCluster(): SparkSession = {
     val spark = SparkSession
       .builder()

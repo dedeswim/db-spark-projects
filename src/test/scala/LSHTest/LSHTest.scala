@@ -1,6 +1,6 @@
 package LSHTest
 
-import lsh.Main.{loadRDD, precision, recall}
+import lsh.Main.{loadRDD, precision, recall, accuracy}
 import lsh.{CompositeConstruction, Construction, ExactNN}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.SQLContext
@@ -107,5 +107,31 @@ class LSHTest extends AnyFunSuite {
 
     assert(((2 doubleValue()) / (3 doubleValue())) == precisionResult)
     assert((3 doubleValue()) / (4 doubleValue()) == recallResult)
+  }
+
+  test("accuracyTest") {
+    val ground = spark.parallelize(IndexedSeq(
+      ("a", Set("b", "c", "d")),
+      ("b", Set("b", "c", "d")),
+      ("c", Set("b", "c", "d")),
+      ("d", Set("b", "c", "d")),
+      ("e", Set("b", "c", "d"))
+    ))
+
+    val lsh = spark.parallelize(IndexedSeq(
+      ("a", Set("b", "c", "d")), // acc: 1
+      ("b", Set("b", "c", "e")), // acc: 3/5
+      ("c", Set("b", "a")), // acc: 2/5
+      ("d", Set("b", "c", "d", "e")), // acc: 4/5
+      ("e", Set("b", "c")) // acc: 4/5
+    ))
+
+    val mean_acc = 18.0/25.0
+    val corpusCount = 5L
+
+    val accRes = accuracy(ground, lsh, corpusCount)
+
+    assert(accRes == mean_acc)
+
   }
 }
