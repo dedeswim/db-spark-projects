@@ -247,14 +247,14 @@ object Main extends Serializable {
 
     sc.parallelize(baseQueriesResults.map(_._1))
       .coalesce(1, shuffle = true)
-      .saveAsTextFile(s"/user/group-15/lsh/testdist/${constructorType}_queries_results_$times.txt")
+      .saveAsTextFile(s"/user/group-15/lsh/testAll/${constructorType}_queries_results_$times.txt")
 
     baseQueriesResults
       .map(_._2)
       .foreach{ case (queryN, distanceDifferences) =>
         distanceDifferences
           .coalesce(1, shuffle = true)
-          .saveAsTextFile(s"/user/group-15/lsh/testdist/${constructorType}_query${queryN}_distance_diff_$times.txt")
+          .saveAsTextFile(s"/user/group-15/lsh/testAll/${constructorType}_query${queryN}_distance_diff_$times.txt")
       }
   }
 
