@@ -45,7 +45,7 @@ object Main extends Serializable {
     }
 
     if (cluster) {
-      val timesEvalAll = 5
+      val timesEvalAll = 10
       // Run queries 0 to 7 with base and broadcast to assess their speed and performance metrics
       val baseConstructionBuilder = () => new BaseConstruction(sqlContext, corpusRdd)
       runSimpleQuery(timesEvalAll, baseConstructionBuilder, getQueryFileName, "base", sc, exact, sqlContext, corpusRdd, totCountCorpus, cluster)
@@ -237,14 +237,14 @@ object Main extends Serializable {
 
     sc.parallelize(baseQueriesResults.map(_._1))
       .coalesce(1, shuffle = true)
-      .saveAsTextFile(s"/user/group-15/lsh/testAll/${constructorType}_queries_results_$times.txt")
+      .saveAsTextFile(s"/user/group-15/lsh/testAllOldConf/${constructorType}_queries_results_$times.txt")
 
     baseQueriesResults
       .map(_._2)
       .foreach{ case (queryN, distanceDifferences) =>
         distanceDifferences
           .coalesce(1, shuffle = true)
-          .saveAsTextFile(s"/user/group-15/lsh/testAll/${constructorType}_query${queryN}_distance_diff_$times.txt")
+          .saveAsTextFile(s"/user/group-15/lsh/testAllOldConf/${constructorType}_query${queryN}_distance_diff_$times.txt")
       }
   }
 
