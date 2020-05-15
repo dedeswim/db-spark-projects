@@ -237,20 +237,35 @@ object Main extends Serializable {
 
     sc.parallelize(baseQueriesResults.map(_._1))
       .coalesce(1, shuffle = true)
-      .saveAsTextFile(s"/user/group-15/lsh/testAllOldConf/${constructorType}_queries_results_$times.txt")
+      .saveAsTextFile(s"/user/group-15/lsh/testWithExact/${constructorType}_queries_results_$times.txt")
 
     baseQueriesResults
       .map(_._2)
       .foreach{ case (queryN, distanceDifferences) =>
         distanceDifferences
           .coalesce(1, shuffle = true)
-          .saveAsTextFile(s"/user/group-15/lsh/testAllOldConf/${constructorType}_query${queryN}_distance_diff_$times.txt")
+          .saveAsTextFile(s"/user/group-15/lsh/testWithExact/${constructorType}_query${queryN}_distance_diff_$times.txt")
       }
   }
 
 
-  private def measureStatistics(queryN: Int, n: Int, constructionBuilder: () => Construction, getQueryFileName: Int => String, sc: SparkContext, exact: Construction, sqlContext: SQLContext, corpusRdd: RDD[(String, List[String])], totCountCorpus: Long, cluster: Boolean): (((Int, IndexedSeq[Double], Double, Double, IndexedSeq[(Double, Double, Double)], Double, Double, Double, Double, Double, Double, Double, Double, Double, Double, Long), (Int, RDD[(String, Double)]))) = {
+  private def doWarmUpExact(exact: Construction, queryRDD: RDD[(String, List[String])]): Unit = {
+    0.until(3).map(_ => exact.eval(queryRDD))
+  }
+
+  private def measureOneComputationExact(exact: Construction, queryRDD: RDD[(String, List[String])]): Double = {
+    val baseStart = System.nanoTime()
+    val baseRes = exact.eval(queryRDD)
+    baseRes.count()
+    (System.nanoTime() - baseStart) / 1e9
+  }
+
+  private def measureStatistics(queryN: Int, n: Int, constructionBuilder: () => Construction, getQueryFileName: Int => String, sc: SparkContext, exact: Construction, sqlContext: SQLContext, corpusRdd: RDD[(String, List[String])], totCountCorpus: Long, cluster: Boolean): (((Int, IndexedSeq[Double], Double, Double, IndexedSeq[Double], Double, Double, IndexedSeq[(Double, Double, Double)], Double, Double, Double, Double, Double, Double, Double, Double, Double, Double, Long), (Int, RDD[(String, Double)]))) = {
     val queryRDD = loadRDD(sc, getQueryFileName(queryN), cluster).cache()
+
+    doWarmUpExact(exact, queryRDD)
+    val exactTimeList: IndexedSeq[Double] = 0.until(n).map(_ => measureOneComputationExact(exact, queryRDD))
+
     val ground = exact.eval(queryRDD).cache()
 
     print(s"Starting Warm-up for query ${queryN}")
@@ -269,6 +284,7 @@ object Main extends Serializable {
 
     ((queryN,
       timeList, mean(timeList), stdDev(timeList),
+      exactTimeList, mean(exactTimeList), stdDev(exactTimeList),
       performancesList,
       accuracyMeasures._1, accuracyMeasures._2,
       precisionMeasures._1, precisionMeasures._2,
@@ -283,7 +299,7 @@ object Main extends Serializable {
     val baseRes = baseConstruction.eval(queryRDD)
     val baseStart = System.nanoTime()
     baseRes.count()
-    (baseStart - System.nanoTime()) / 1e9
+    (System.nanoTime() - baseStart) / 1e9
   }
 
   private def measureOnePerformance(queryRDD: RDD[(String, List[String])], constructionBuilder: () => Construction, ground: RDD[(String, Set[String])], totCountCorpus: Long): (Double, Double, Double) = {
