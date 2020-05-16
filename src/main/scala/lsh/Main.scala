@@ -141,11 +141,9 @@ object Main extends Serializable {
   }
 
   def query(constructionBuilder: () => Construction, ground: RDD[(String, Set[String])],
-            queryRdd: RDD[(String, List[String])], reqPrecision: Double, reqRecall: Double, times: Int = 1, cluster: Boolean): Double = {
+            queryRdd: RDD[(String, List[String])], reqPrecision: Double, reqRecall: Double, times: Int = 1, cluster: Boolean): Seq[(Double, Double)] = {
 
-    implicit def bool2int(b: Boolean): Int = if (b) 1 else 0
-
-    def singleQuery(): Int = {
+    def singleQuery(): (Double, Double) = {
       val construction = constructionBuilder()
       val res = construction.eval(queryRdd)
       val queryPrecision = precision(ground, res)
@@ -156,17 +154,17 @@ object Main extends Serializable {
         println(s"Recall: $queryRecall, required: $reqRecall")
       }
 
-      queryPrecision > reqPrecision & queryRecall > reqRecall
+      (queryPrecision, queryRecall)
     }
 
-    val correctResults = 0.until(times).map(_ => singleQuery()).sum
-    val correctResultsPercentage = correctResults.doubleValue() / times.doubleValue()
+    val correctResults = 0.until(times).map(_ => singleQuery())
 
     if (!cluster) {
-      println(s"Percentage of correct results: $correctResultsPercentage")
+      println(s"Results:")
+      correctResults.foreach(t => println(s"Precision: ${t._1}, Recall: ${t._2}"))
     }
 
-    correctResultsPercentage
+    correctResults
   }
 
   def doWarmUp(queryRdd: RDD[(String, List[String])], constructionBuilder: () => Construction): Unit = {
@@ -193,7 +191,9 @@ object Main extends Serializable {
     results.mean()
   }
 
-  private def query0(times: Int, sc: SparkContext, getQueryFileName: Int => String, exact: Construction, sqlContext: SQLContext, corpusRdd: RDD[(String, List[String])], cluster: Boolean): Double = {
+  private def query0(times: Int, sc: SparkContext, getQueryFileName: Int => String, exact: Construction,
+                     sqlContext: SQLContext, corpusRdd: RDD[(String, List[String])],
+                     cluster: Boolean): Seq[(Double, Double)] = {
     // Query 0 -> Tradeoff between FPs and FNs, but rec > pr so we should keep FNs low, thus we use AND+OR
     val RECALL = 0.83
     val PRECISION = 0.70
@@ -209,7 +209,9 @@ object Main extends Serializable {
     correctPercentage
   }
 
-  private def query1(times: Int, sc: SparkContext, getQueryFileName: Int => String, exact: Construction, sqlContext: SQLContext, corpusRdd: RDD[(String, List[String])], cluster: Boolean) = {
+  private def query1(times: Int, sc: SparkContext, getQueryFileName: Int => String, exact: Construction,
+                     sqlContext: SQLContext, corpusRdd: RDD[(String, List[String])],
+                     cluster: Boolean): Seq[(Double, Double)] = {
     // Query 1 -> Recall is kinda low and precision is high, we should avoid FPs, we can admit more FNs, we use AND
     val RECALL = 0.7
     val PRECISION = 0.98
@@ -225,7 +227,9 @@ object Main extends Serializable {
     correctPercentage
   }
 
-  private def query2(times: Int, sc: SparkContext, getQueryFileName: Int => String, exact: Construction, sqlContext: SQLContext, corpusRdd: RDD[(String, List[String])], cluster: Boolean): Double = {
+  private def query2(times: Int, sc: SparkContext, getQueryFileName: Int => String, exact: Construction,
+                     sqlContext: SQLContext, corpusRdd: RDD[(String, List[String])],
+                     cluster: Boolean): Seq[(Double, Double)] = {
     // Query 2 -> Recall is high and precision is low, we should avoid FNs, we can admit more FPs, we use OR with b = 3
     val RECALL = 0.9
     val PRECISION = 0.45
