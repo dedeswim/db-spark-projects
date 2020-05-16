@@ -13,12 +13,15 @@ object Main extends Serializable {
   def main(args: Array[String]) {
 
     val cluster = true
-    val evaluate02 = false
+    val evaluateComposites = true
+    val evaluateBasePerformance = false
+
     val sc = if (cluster) {
       runOnCluster().sparkContext
     } else {
       runOnLocal().sparkContext
     }
+
     val sqlContext = new org.apache.spark.sql.SQLContext(sc)
     val corpusFile = getFilePath(cluster, "lsh-corpus-small.csv")
     val corpusRdd = loadRDD(sc, corpusFile, cluster).cache()
@@ -28,30 +31,37 @@ object Main extends Serializable {
     val getQueryFileName = (x: Int) => getFilePath(cluster, s"lsh-query-$x.csv")
 
     // Run the queries for which composite constructions are required
-    if (evaluate02) {
+    if (evaluateComposites) {
       val timesEval02 = 1000
-      val res0 = (0, query0(timesEval02, sc, getQueryFileName, exact, sqlContext, corpusRdd, cluster))
-      val res1 = (1, query1(timesEval02, sc, getQueryFileName, exact, sqlContext, corpusRdd, cluster))
-      val res2 = (2, query2(timesEval02, sc, getQueryFileName, exact, sqlContext, corpusRdd, cluster))
+      val res0 =
+        query0(timesEval02, sc, getQueryFileName, exact, sqlContext, corpusRdd, cluster, totCountCorpus).map((0, _))
+      val res1 =
+        query1(timesEval02, sc, getQueryFileName, exact, sqlContext, corpusRdd, cluster, totCountCorpus).map((1, _))
+      val res2 =
+        query2(timesEval02, sc, getQueryFileName, exact, sqlContext, corpusRdd, cluster, totCountCorpus).map((2, _))
 
       // If on the cluster, save results to file
       if (cluster) {
-        val compositeQueriesResults = IndexedSeq(res0, res1, res2)
-        sc.parallelize(compositeQueriesResults)
+        val compositeQueriesResults =
+          IndexedSeq(res0, res1, res2)
+            .flatten
+            .map { case (query, (precision, recall, accuracy)) => s"$query,$precision,$recall,$accuracy" }
+
+        sc.parallelize("query,precision,recall,accuracy" :+ compositeQueriesResults)
           .coalesce(1, shuffle = true)
-          .saveAsTextFile(s"/user/group-15/lsh/composite_queries_results_$timesEval02.txt")
+          .saveAsTextFile(s"/user/group-15/lsh/composite_queries_results_$timesEval02.csv")
       }
 
     }
 
-    if (cluster) {
+    if (cluster & evaluateBasePerformance) {
       val timesEvalAll = 10
       // Run queries 0 to 7 with base and broadcast to assess their speed and performance metrics
       val baseConstructionBuilder = () => new BaseConstruction(sqlContext, corpusRdd)
-      runSimpleQuery(timesEvalAll, baseConstructionBuilder, getQueryFileName, "base", sc, exact, sqlContext, corpusRdd, totCountCorpus, cluster)
+      runSimpleQuery(timesEvalAll, baseConstructionBuilder, getQueryFileName, "base", sc, exact, corpusRdd, totCountCorpus, cluster)
 
       val broadcastConstructionBuilder = () => new BaseConstructionBroadcast(sqlContext, corpusRdd)
-      runSimpleQuery(timesEvalAll, broadcastConstructionBuilder, getQueryFileName, "broadcast", sc, exact, sqlContext, corpusRdd, totCountCorpus, cluster)
+      runSimpleQuery(timesEvalAll, broadcastConstructionBuilder, getQueryFileName, "broadcast", sc, exact, corpusRdd, totCountCorpus, cluster)
 
     }
   }
@@ -95,13 +105,13 @@ object Main extends Serializable {
     * returns average accuracy
     * */
 
-    val accMetric = (truth:Set[String], lsh:Set[String], corpusCount: Long) => {
+    val accMetric = (truth: Set[String], lsh: Set[String], corpusCount: Long) => {
       val tp = truth.intersect(lsh).size.doubleValue()
       val fn = truth.diff(lsh).size.doubleValue()
       val fp = lsh.diff(truth).size.doubleValue()
-      val tn = (corpusCount - (truth.union(lsh).size)).doubleValue()
+      val tn = (corpusCount - truth.union(lsh).size).doubleValue()
 
-      (tp+tn)/(tp+tn+fn+fp)
+      (tp + tn) / (tp + tn + fn + fp)
     }
 
     computeMetric(
@@ -115,46 +125,51 @@ object Main extends Serializable {
 
     val distances =
       nn
-      .map{case(movie, neighbors) => (movie, mapQuery(movie), neighbors.map(mapCorpus))}
-      .map{case(movie, movieKeys, neighKeys) => (movie, neighKeys.map(nKey => jaccard(movieKeys, nKey)))}
-      .map{case(movie, neighDist) => (movie, mean(neighDist))}
+        .map { case (movie, neighbors) => (movie, mapQuery(movie), neighbors.map(mapCorpus)) }
+        .map { case (movie, movieKeys, neighKeys) => (movie, neighKeys.map(nKey => jaccard(movieKeys, nKey))) }
+        .map { case (movie, neighDist) => (movie, mean(neighDist)) }
 
     val meanDist = distances.map(_._2).mean()
     (distances, meanDist)
   }
 
-  private def jaccard(query: List[String], data: List[String]): Double = {
-    val querySet = query.toSet
-    val dataSet = data.toSet
-    val jaccard = querySet.intersect(dataSet).size.doubleValue()/querySet.union(dataSet).size.doubleValue()
-    jaccard
-  }
-
   def query(constructionBuilder: () => Construction, ground: RDD[(String, Set[String])],
-            queryRdd: RDD[(String, List[String])], reqPrecision: Double, reqRecall: Double, times: Int = 1, cluster: Boolean): Seq[(Double, Double)] = {
+            queryRdd: RDD[(String, List[String])], reqPrecision: Double, reqRecall: Double,
+            times: Int = 1, cluster: Boolean, totCountCorpus: Long): Seq[(Double, Double, Double)] = {
 
-    def singleQuery(): (Double, Double) = {
+    def singleQuery(): (Double, Double, Double) = {
       val construction = constructionBuilder()
       val res = construction.eval(queryRdd)
       val queryPrecision = precision(ground, res)
       val queryRecall = recall(ground, res)
+      val queryAccuracy = accuracy(ground, res, totCountCorpus)
 
       if (!cluster & (queryPrecision < reqPrecision | queryRecall < reqRecall)) {
         println(s"Precision: $queryPrecision, required: $reqPrecision")
         println(s"Recall: $queryRecall, required: $reqRecall")
       }
 
-      (queryPrecision, queryRecall)
+      (queryPrecision, queryRecall, queryAccuracy)
     }
 
     val correctResults = 0.until(times).map(_ => singleQuery())
 
     if (!cluster) {
       println(s"Results:")
-      correctResults.foreach(t => println(s"Precision: ${t._1}, Recall: ${t._2}"))
+      correctResults.foreach(t => println(s"Precision: ${t._1}, Recall: ${t._2}, Accuracy: ${t._3}"))
     }
 
+    queryRdd.unpersist()
+    ground.unpersist()
+
     correctResults
+  }
+
+  private def jaccard(query: List[String], data: List[String]): Double = {
+    val querySet = query.toSet
+    val dataSet = data.toSet
+    val jaccard = querySet.intersect(dataSet).size.doubleValue() / querySet.union(dataSet).size.doubleValue()
+    jaccard
   }
 
   def doWarmUp(queryRdd: RDD[(String, List[String])], constructionBuilder: () => Construction): Unit = {
@@ -183,7 +198,7 @@ object Main extends Serializable {
 
   private def query0(times: Int, sc: SparkContext, getQueryFileName: Int => String, exact: Construction,
                      sqlContext: SQLContext, corpusRdd: RDD[(String, List[String])],
-                     cluster: Boolean): Seq[(Double, Double)] = {
+                     cluster: Boolean, totCountCorpus: Long): Seq[(Double, Double, Double)] = {
     // Query 0 -> Tradeoff between FPs and FNs, but rec > pr so we should keep FNs low, thus we use AND+OR
     val RECALL = 0.83
     val PRECISION = 0.70
@@ -191,17 +206,14 @@ object Main extends Serializable {
     val queryRdd = loadRDD(sc, getQueryFileName(0), cluster).cache()
     val ground = exact.eval(queryRdd).cache()
     val constructionBuilder = () => CompositeConstruction.andOrBase(sqlContext, corpusRdd, r, b)
-    val correctPercentage = query(constructionBuilder, ground, queryRdd, PRECISION, RECALL, times, cluster)
+    val queryResults = query(constructionBuilder, ground, queryRdd, PRECISION, RECALL, times, cluster, totCountCorpus)
 
-    queryRdd.unpersist()
-    ground.unpersist()
-
-    correctPercentage
+    queryResults
   }
 
   private def query1(times: Int, sc: SparkContext, getQueryFileName: Int => String, exact: Construction,
                      sqlContext: SQLContext, corpusRdd: RDD[(String, List[String])],
-                     cluster: Boolean): Seq[(Double, Double)] = {
+                     cluster: Boolean, totCountCorpus: Long): Seq[(Double, Double, Double)] = {
     // Query 1 -> Recall is kinda low and precision is high, we should avoid FPs, we can admit more FNs, we use AND
     val RECALL = 0.7
     val PRECISION = 0.98
@@ -209,17 +221,14 @@ object Main extends Serializable {
     val queryRdd = loadRDD(sc, getQueryFileName(1), cluster).cache()
     val ground = exact.eval(queryRdd).cache()
     val constructionBuilder = () => ANDConstruction.getConstructionBroadcast(sqlContext, corpusRdd, r)
-    val correctPercentage = query(constructionBuilder, ground, queryRdd, PRECISION, RECALL, times, cluster)
+    val queryResults = query(constructionBuilder, ground, queryRdd, PRECISION, RECALL, times, cluster, totCountCorpus)
 
-    queryRdd.unpersist()
-    ground.unpersist()
-
-    correctPercentage
+    queryResults
   }
 
   private def query2(times: Int, sc: SparkContext, getQueryFileName: Int => String, exact: Construction,
                      sqlContext: SQLContext, corpusRdd: RDD[(String, List[String])],
-                     cluster: Boolean): Seq[(Double, Double)] = {
+                     cluster: Boolean, totCountCorpus: Long): Seq[(Double, Double, Double)] = {
     // Query 2 -> Recall is high and precision is low, we should avoid FNs, we can admit more FPs, we use OR with b = 3
     val RECALL = 0.9
     val PRECISION = 0.45
@@ -227,17 +236,14 @@ object Main extends Serializable {
     val queryRdd = loadRDD(sc, getQueryFileName(2), cluster).cache()
     val ground = exact.eval(queryRdd).cache()
     val constructionBuilder = () => ORConstruction.getConstructionBroadcast(b, sqlContext, corpusRdd)
-    val correctPercentage = query(constructionBuilder, ground, queryRdd, PRECISION, RECALL, times, cluster)
+    val queryResults = query(constructionBuilder, ground, queryRdd, PRECISION, RECALL, times, cluster, totCountCorpus)
 
-    queryRdd.unpersist()
-    ground.unpersist()
-
-    correctPercentage
+    queryResults
   }
 
-  private def runSimpleQuery(times: Int, baseConstructionBuilder: () => Construction, getQueryFileName: Int => String, constructorType: String, sc: SparkContext, exact: Construction, sqlContext: SQLContext, corpusRdd: RDD[(String, List[String])], totCountCorpus: Long, cluster: Boolean): Unit = {
+  private def runSimpleQuery(times: Int, baseConstructionBuilder: () => Construction, getQueryFileName: Int => String, constructorType: String, sc: SparkContext, exact: Construction, corpusRdd: RDD[(String, List[String])], totCountCorpus: Long, cluster: Boolean): Unit = {
     val baseQueriesResults = 0.until(8)
-      .map(measureStatistics(_, times, baseConstructionBuilder, getQueryFileName, sc, exact, sqlContext, corpusRdd, totCountCorpus, cluster))
+      .map(measureStatistics(_, times, baseConstructionBuilder, getQueryFileName, sc, exact, corpusRdd, totCountCorpus, cluster))
 
     sc.parallelize(baseQueriesResults.map(_._1))
       .coalesce(1, shuffle = true)
@@ -245,7 +251,7 @@ object Main extends Serializable {
 
     baseQueriesResults
       .map(_._2)
-      .foreach{ case (queryN, distanceDifferences) =>
+      .foreach { case (queryN, distanceDifferences) =>
         distanceDifferences
           .coalesce(1, shuffle = true)
           .saveAsTextFile(s"/user/group-15/lsh/testWithExact/${constructorType}_query${queryN}_distance_diff_$times.txt")
@@ -264,7 +270,12 @@ object Main extends Serializable {
     (System.nanoTime() - baseStart) / 1e9
   }
 
-  private def measureStatistics(queryN: Int, n: Int, constructionBuilder: () => Construction, getQueryFileName: Int => String, sc: SparkContext, exact: Construction, sqlContext: SQLContext, corpusRdd: RDD[(String, List[String])], totCountCorpus: Long, cluster: Boolean): (((Int, IndexedSeq[Double], Double, Double, IndexedSeq[Double], Double, Double, IndexedSeq[(Double, Double, Double)], Double, Double, Double, Double, Double, Double, Double, Double, Double, Double, Long), (Int, RDD[(String, Double)]))) = {
+  private def measureStatistics(queryN: Int, n: Int, constructionBuilder: () => Construction,
+                                getQueryFileName: Int => String, sc: SparkContext, exact: Construction,
+                                corpusRdd: RDD[(String, List[String])], totCountCorpus: Long, cluster: Boolean):
+  ((Int, IndexedSeq[Double], Double, Double, IndexedSeq[Double], Double, Double, IndexedSeq[(Double, Double, Double)],
+    Double, Double, Double, Double, Double, Double, Double, Double, Double, Double, Long), (Int, RDD[(String, Double)])) = {
+
     val queryRDD = loadRDD(sc, getQueryFileName(queryN), cluster).cache()
 
     doWarmUpExact(exact, queryRDD)
@@ -272,7 +283,7 @@ object Main extends Serializable {
 
     val ground = exact.eval(queryRDD).cache()
 
-    print(s"Starting Warm-up for query ${queryN}")
+    print(s"Starting Warm-up for query $queryN")
     doWarmUp(queryRDD, constructionBuilder)
 
     val timeList: IndexedSeq[Double] = 0.until(n).map(_ => measureOneComputation(queryRDD, constructionBuilder))
@@ -281,7 +292,7 @@ object Main extends Serializable {
     val precisionMeasures = (mean(performancesList.map(_._2)), stdDev(performancesList.map(_._2)))
     val recallMeasures = (mean(performancesList.map(_._3)), stdDev(performancesList.map(_._3)))
 
-    val (distanceDifferences, meanDistDiffTot, stdDistDiffTot, meanDistDiffTotPointwise, stdDistDiffTotPointwise) = measureDistances(ground, queryRDD, constructionBuilder, queryN, n, corpusRdd)
+    val (distanceDifferences, meanDistDiffTot, stdDistDiffTot, meanDistDiffTotPointwise, stdDistDiffTotPointwise) = measureDistances(ground, queryRDD, constructionBuilder, n, corpusRdd)
 
     val querySize = queryRDD.count()
     queryRDD.unpersist()
@@ -316,7 +327,7 @@ object Main extends Serializable {
     (queryAccuracy, queryPrecision, queryRecall)
   }
 
-  private def measureDistances(ground: RDD[(String, Set[String])], queryRDD: RDD[(String, List[String])], constructionBuilder: () => Construction, queryN: Int, n: Int, corpusRdd: RDD[(String, List[String])]): (RDD[(String, Double)], Double, Double, Double, Double) = {
+  private def measureDistances(ground: RDD[(String, Set[String])], queryRDD: RDD[(String, List[String])], constructionBuilder: () => Construction, n: Int, corpusRdd: RDD[(String, List[String])]): (RDD[(String, Double)], Double, Double, Double, Double) = {
     val (exactDistances, meanExactDistances) = avgDistances(ground, queryRDD, corpusRdd)
     val distancesRes = 0.until(n).map(_ => distanceDiff(exactDistances, meanExactDistances, queryRDD, constructionBuilder, corpusRdd))
     val meanDistDiffPointwise =
@@ -324,7 +335,7 @@ object Main extends Serializable {
         .map(_._1)
         .reduce(_ union _)
         .groupBy(_._1)
-        .map{case(movie, differences) => (movie, mean(differences.map(_._2)))}
+        .map { case (movie, differences) => (movie, mean(differences.map(_._2))) }
     val meanDistDiffTot = mean(distancesRes.map(_._2))
     val stdDistDiffTot = stdDev(distancesRes.map(_._2))
     val meanDistDiffTotPointwise = meanDistDiffPointwise.map(_._2).mean()
@@ -338,7 +349,7 @@ object Main extends Serializable {
     val (lshDistances, meanLSHDistances) = avgDistances(baseRes, queryRDD, corpusRdd)
     (exactDistances
       .join(lshDistances)
-      .map{ case (movie, (exact, approx)) => (movie, exact - approx)},
+      .map { case (movie, (exact, approx)) => (movie, exact - approx) },
       meanExactDistances - meanLSHDistances)
   }
 
