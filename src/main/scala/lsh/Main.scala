@@ -32,24 +32,26 @@ object Main extends Serializable {
 
     // Run the queries for which composite constructions are required
     if (evaluateComposites) {
-      val timesEval02 = 1000
+      val timesComposites = 100
       val res0 =
-        query0(timesEval02, sc, getQueryFileName, exact, sqlContext, corpusRdd, cluster, totCountCorpus).map((0, _))
+        query0(timesComposites, sc, getQueryFileName, exact, sqlContext, corpusRdd, cluster, totCountCorpus).map((0, _))
       val res1 =
-        query1(timesEval02, sc, getQueryFileName, exact, sqlContext, corpusRdd, cluster, totCountCorpus).map((1, _))
+        query1(timesComposites, sc, getQueryFileName, exact, sqlContext, corpusRdd, cluster, totCountCorpus).map((1, _))
       val res2 =
-        query2(timesEval02, sc, getQueryFileName, exact, sqlContext, corpusRdd, cluster, totCountCorpus).map((2, _))
+        query2(timesComposites, sc, getQueryFileName, exact, sqlContext, corpusRdd, cluster, totCountCorpus).map((2, _))
 
       // If on the cluster, save results to file
-      if (cluster) {
-        val compositeQueriesResults =
-          IndexedSeq(res0, res1, res2)
-            .flatten
-            .map { case (query, (precision, recall, accuracy)) => s"$query,$precision,$recall,$accuracy" }
+      val compositeQueriesResults =
+        IndexedSeq(res0, res1, res2)
+          .flatten
+          .map { case (query, (precision, recall, accuracy)) => s"$query,$precision,$recall,$accuracy" }
 
-        sc.parallelize("query,precision,recall,accuracy" :+ compositeQueriesResults)
+      if (cluster) {
+        sc.parallelize(compositeQueriesResults)
           .coalesce(1, shuffle = true)
-          .saveAsTextFile(s"/user/group-15/lsh/composite_queries_results_$timesEval02.csv")
+          .saveAsTextFile(s"/user/group-15/lsh/composite_queries_results_$timesComposites")
+      } else {
+        compositeQueriesResults.foreach(println)
       }
 
     }
@@ -159,9 +161,6 @@ object Main extends Serializable {
       correctResults.foreach(t => println(s"Precision: ${t._1}, Recall: ${t._2}, Accuracy: ${t._3}"))
     }
 
-    queryRdd.unpersist()
-    ground.unpersist()
-
     correctResults
   }
 
@@ -208,6 +207,9 @@ object Main extends Serializable {
     val constructionBuilder = () => CompositeConstruction.andOrBase(sqlContext, corpusRdd, r, b)
     val queryResults = query(constructionBuilder, ground, queryRdd, PRECISION, RECALL, times, cluster, totCountCorpus)
 
+    queryRdd.unpersist()
+    ground.unpersist()
+
     queryResults
   }
 
@@ -223,6 +225,9 @@ object Main extends Serializable {
     val constructionBuilder = () => ANDConstruction.getConstructionBroadcast(sqlContext, corpusRdd, r)
     val queryResults = query(constructionBuilder, ground, queryRdd, PRECISION, RECALL, times, cluster, totCountCorpus)
 
+    queryRdd.unpersist()
+    ground.unpersist()
+
     queryResults
   }
 
@@ -237,6 +242,9 @@ object Main extends Serializable {
     val ground = exact.eval(queryRdd).cache()
     val constructionBuilder = () => ORConstruction.getConstructionBroadcast(b, sqlContext, corpusRdd)
     val queryResults = query(constructionBuilder, ground, queryRdd, PRECISION, RECALL, times, cluster, totCountCorpus)
+
+    queryRdd.unpersist()
+    ground.unpersist()
 
     queryResults
   }

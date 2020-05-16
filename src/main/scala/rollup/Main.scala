@@ -11,8 +11,8 @@ object Main {
   val agg = "AVG"
 
   // Rollup using the following attributes.
-  // lo_suppkey, lo_orderpriority, lo_shipmode, lo_tax, lo_discount, lo_linenumber, lo_custkey, lo_partkey, lo_orderkey
-  val groupingList = List(4, 6, 16, 14, 11, 1, 2, 3, 0)
+  // lo_suppkey, lo_orderpriority lo_shipmode, lo_linenumber, lo_tax, lo_discount, lo_custkey, lo_partkey, lo_orderkey
+  val groupingList = List(4, 6, 16, 11, 14, 1, 2, 3, 0)
 
   def main(args: Array[String]) {
 
@@ -24,7 +24,14 @@ object Main {
       runOnLocal()
     }
 
-    val filenames = IndexedSeq("lineorder_big.tbl") // lineorder_small.tbl", "lineorder_medium.tbl")
+    val filenames = IndexedSeq("lineorder_small.tbl", "lineorder_medium.tbl", "lineorder_big.tbl")
+
+    def saveResults(naiveResults: RDD[(Int, Int, List[Double], Double, Double)], fileSize: String, queryType: String): Unit = {
+      naiveResults
+        .map { case (size, n_indices, results, avg, stdDev) => s"$size,$n_indices,$results,$avg,$stdDev" }
+        .coalesce(1, shuffle = true)
+        .saveAsTextFile(s"/user/group-15/results_rollup_${queryType}_avg_$fileSize")
+    }
 
     for (filename <- filenames) {
       // size, n_indices, results, avg, std
@@ -35,7 +42,7 @@ object Main {
       val entireRdd = loadRDD(spark.sqlContext, filePath, cluster, toLimit = false, delimiter = "|", header = "true")
 
       val rddSize = entireRdd.count().toInt
-      val splits = IndexedSeq(3, 2, 1)
+      val splits = IndexedSeq(1)
 
       for (i <- splits) {
         val size = rddSize / i
@@ -46,7 +53,7 @@ object Main {
         println("Warm-up ended")
         println("----------------------------------------------------------------")
 
-        for (n_indices <- groupingList.indices) {
+        for (n_indices <- groupingList.indices :+ groupingList.size) {
           println(s"File: $filename, limit: $size, number of indices: $n_indices")
           val runGroupingList = groupingList.take(n_indices)
           val (naiveResList, naiveAvg, naiveStd) = measureStatistics(rdd, runGroupingList, "naive")
@@ -65,17 +72,11 @@ object Main {
 
       // Take small, medium, big
       val fileSize = filename.split(raw"\.")(0).drop(10)
-      val run = 0
 
-      naiveResults
-        .sortBy(t => (t._1, t._2))
-        .coalesce(1, shuffle = true)
-        .saveAsTextFile(s"/user/group-15/results_rollup_naive_${run}_avg_$fileSize")
-
-      optResults
-        .sortBy(t => (t._1, t._2))
-        .coalesce(1, shuffle = true)
-        .saveAsTextFile(s"/user/group-15/results_rollup_opt_${run}_avg_$fileSize")
+      if (cluster) {
+        saveResults(naiveResults, fileSize, "naive")
+        saveResults(optResults, fileSize, "opt")
+      }
     }
 
     /*// use the following code to evaluate the correctness of your results

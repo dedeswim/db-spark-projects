@@ -1,6 +1,6 @@
 package LSHTest
 
-import lsh.Main.{loadRDD, precision, recall, accuracy}
+import lsh.Main.{accuracy, loadRDD, precision, recall}
 import lsh.{CompositeConstruction, Construction, ExactNN}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.SQLContext
@@ -24,8 +24,8 @@ class LSHTest extends AnyFunSuite {
             requiredPrecision: Double,
             requiredRecall: Double): Unit = {
 
-    val rddCorpus = loadRDD(spark, corpusFile, false)
-    val rddQuery = loadRDD(spark, queryFile, false)
+    val rddCorpus = loadRDD(spark, corpusFile, cluster = false)
+    val rddQuery = loadRDD(spark, queryFile, cluster = false)
 
     val exact: Construction = new ExactNN(sqlContext, rddCorpus, 0.3)
     val lsh: Construction = composite(sqlContext, rddCorpus, r, b)
