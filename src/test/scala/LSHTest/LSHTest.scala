@@ -24,8 +24,8 @@ class LSHTest extends AnyFunSuite {
             requiredPrecision: Double,
             requiredRecall: Double): Unit = {
 
-    val rddCorpus = loadRDD(spark, corpusFile)
-    val rddQuery = loadRDD(spark, queryFile)
+    val rddCorpus = loadRDD(spark, corpusFile, false)
+    val rddQuery = loadRDD(spark, queryFile, false)
 
     val exact: Construction = new ExactNN(sqlContext, rddCorpus, 0.3)
     val lsh: Construction = composite(sqlContext, rddCorpus, r, b)
