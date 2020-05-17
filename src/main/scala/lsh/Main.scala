@@ -305,8 +305,6 @@ object Main extends Serializable {
       exactTimeList = exactTimeList.map(_ => 0.0)
     }
 
-
-
     val ground = exact.eval(queryRDD).cache()
 
     print(s"Starting Warm-up for query $queryN")
