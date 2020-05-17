@@ -13,8 +13,8 @@ object Main extends Serializable {
   def main(args: Array[String]) {
 
     val cluster = true
-    val evaluateComposites = true
-    val evaluateBasePerformance = false
+    val evaluateComposites = false
+    val evaluateBasePerformance = true
 
     val sc = if (cluster) {
       runOnCluster().sparkContext
@@ -23,22 +23,23 @@ object Main extends Serializable {
     }
 
     val sqlContext = new org.apache.spark.sql.SQLContext(sc)
-    val corpusFile = getFilePath(cluster, "lsh-corpus-small.csv")
-    val corpusRdd = loadRDD(sc, corpusFile, cluster).cache()
-    val totCountCorpus = corpusRdd.count()
-    //private val mapCorpus = corpusRdd.collectAsMap()
-    val exact: Construction = new ExactNN(sqlContext, corpusRdd, 0.3)
     val getQueryFileName = (x: Int) => getFilePath(cluster, s"lsh-query-$x.csv")
+
 
     // Run the queries for which composite constructions are required
     if (evaluateComposites) {
+      val corpusFileComposite = getFilePath(cluster, "lsh-corpus-small.csv")
+      val corpusRDDComposite = loadRDD(sc, corpusFileComposite, cluster).cache()
+      val totCountCorpusComposite = corpusRDDComposite.count()
+      val exactComposite: Construction = new ExactNN(sqlContext, corpusRDDComposite, 0.3)
+
       val timesComposites = 100
       val res0 =
-        query0(timesComposites, sc, getQueryFileName, exact, sqlContext, corpusRdd, cluster, totCountCorpus).map((0, _))
+        query0(timesComposites, sc, getQueryFileName, exactComposite, sqlContext, corpusRDDComposite, cluster, totCountCorpusComposite).map((0, _))
       val res1 =
-        query1(timesComposites, sc, getQueryFileName, exact, sqlContext, corpusRdd, cluster, totCountCorpus).map((1, _))
+        query1(timesComposites, sc, getQueryFileName, exactComposite, sqlContext, corpusRDDComposite, cluster, totCountCorpusComposite).map((1, _))
       val res2 =
-        query2(timesComposites, sc, getQueryFileName, exact, sqlContext, corpusRdd, cluster, totCountCorpus).map((2, _))
+        query2(timesComposites, sc, getQueryFileName, exactComposite, sqlContext, corpusRDDComposite, cluster, totCountCorpusComposite).map((2, _))
 
       // If on the cluster, save results to file
       val compositeQueriesResults =
@@ -57,13 +58,11 @@ object Main extends Serializable {
     }
 
     if (cluster & evaluateBasePerformance) {
-      val timesEvalAll = 10
+      val timesEvalAll = 5
       // Run queries 0 to 7 with base and broadcast to assess their speed and performance metrics
-      val baseConstructionBuilder = () => new BaseConstruction(sqlContext, corpusRdd)
-      runSimpleQuery(timesEvalAll, baseConstructionBuilder, getQueryFileName, "base", sc, exact, corpusRdd, totCountCorpus, cluster)
+      runSimpleQuery(timesEvalAll, getQueryFileName, "base", sc, sqlContext, cluster)
 
-      val broadcastConstructionBuilder = () => new BaseConstructionBroadcast(sqlContext, corpusRdd)
-      runSimpleQuery(timesEvalAll, broadcastConstructionBuilder, getQueryFileName, "broadcast", sc, exact, corpusRdd, totCountCorpus, cluster)
+      runSimpleQuery(timesEvalAll, getQueryFileName, "broadcast", sc, sqlContext, cluster)
 
     }
   }
@@ -249,26 +248,34 @@ object Main extends Serializable {
     queryResults
   }
 
-  private def runSimpleQuery(times: Int, baseConstructionBuilder: () => Construction, getQueryFileName: Int => String, constructorType: String, sc: SparkContext, exact: Construction, corpusRdd: RDD[(String, List[String])], totCountCorpus: Long, cluster: Boolean): Unit = {
-    val baseQueriesResults = 0.until(8)
-      .map(measureStatistics(_, times, baseConstructionBuilder, getQueryFileName, sc, exact, corpusRdd, totCountCorpus, cluster))
+  private def runSimpleQuery(times: Int, getQueryFileName: Int => String, constructorType: String, sc: SparkContext, sqlContext: SQLContext, cluster: Boolean): Unit = {
+    val getCorpusFileName = (dim: String) => getFilePath(cluster, s"lsh-corpus-$dim.csv")
+    val getCorpusDim = (x: Int) => if (0 to 2 contains x) "small" else if (3 to 5 contains x) "medium" else "large"
 
-    sc.parallelize(baseQueriesResults.map(_._1))
-      .coalesce(1, shuffle = true)
-      .saveAsTextFile(s"/user/group-15/lsh/testWithExact/${constructorType}_queries_results_$times.txt")
+    val slices = IndexedSeq(0, 3, 6, 8)
+    for (i <- 0 to 2) {
+      val baseQueriesResults = slices(i).until(slices(i+1))
+        .map(n => measureStatistics(n, times, getQueryFileName, constructorType, getCorpusFileName(getCorpusDim(n)), sc, sqlContext, cluster))
 
-    baseQueriesResults
-      .map(_._2)
-      .foreach { case (queryN, distanceDifferences) =>
-        distanceDifferences
-          .coalesce(1, shuffle = true)
-          .saveAsTextFile(s"/user/group-15/lsh/testWithExact/${constructorType}_query${queryN}_distance_diff_$times.txt")
-      }
+      val queryRange = slices(i) + "_to_" + (slices(i+1)-1)
+      sc.parallelize(baseQueriesResults.map(_._1))
+        .coalesce(1, shuffle = true)
+        .saveAsTextFile(s"/user/group-15/lsh/testWithBigCorpuses/${constructorType}_queries_${queryRange}_results_$times.txt")
+
+      baseQueriesResults
+        .map(_._2)
+        .foreach { case (queryN, distanceDifferences) =>
+          distanceDifferences
+            .coalesce(1, shuffle = true)
+            .saveAsTextFile(s"/user/group-15/lsh/testWithBigCorpuses/${constructorType}_query${queryN}_distance_diff_$times.txt")
+        }
+    }
+
   }
 
 
   private def doWarmUpExact(exact: Construction, queryRDD: RDD[(String, List[String])]): Unit = {
-    0.until(3).map(_ => exact.eval(queryRDD))
+    0.until(3).map(_ => measureOneComputationExact(exact, queryRDD))
   }
 
   private def measureOneComputationExact(exact: Construction, queryRDD: RDD[(String, List[String])]): Double = {
@@ -278,20 +285,36 @@ object Main extends Serializable {
     (System.nanoTime() - baseStart) / 1e9
   }
 
-  private def measureStatistics(queryN: Int, n: Int, constructionBuilder: () => Construction,
-                                getQueryFileName: Int => String, sc: SparkContext, exact: Construction,
-                                corpusRdd: RDD[(String, List[String])], totCountCorpus: Long, cluster: Boolean):
+  private def measureStatistics(queryN: Int, n: Int, getQueryFileName: Int => String, constructorType: String,
+                                corpusFilePath: String, sc: SparkContext, sqlContext: SQLContext,cluster: Boolean):
   ((Int, IndexedSeq[Double], Double, Double, IndexedSeq[Double], Double, Double, IndexedSeq[(Double, Double, Double)],
     Double, Double, Double, Double, Double, Double, Double, Double, Double, Double, Long), (Int, RDD[(String, Double)])) = {
 
     val queryRDD = loadRDD(sc, getQueryFileName(queryN), cluster).cache()
+    queryRDD.count()
+    val corpusRdd = loadRDD(sc, corpusFilePath, cluster).cache()
+    val totCountCorpus = corpusRdd.count()
+    val exact = new ExactNN(sqlContext, corpusRdd, 0.3)
 
-    doWarmUpExact(exact, queryRDD)
-    val exactTimeList: IndexedSeq[Double] = 0.until(n).map(_ => measureOneComputationExact(exact, queryRDD))
+    var exactTimeList: IndexedSeq[Double] = 0.until(n).map(n => n.toDouble)
+    if (constructorType=="base") {
+      doWarmUpExact(exact, queryRDD)
+      exactTimeList = exactTimeList.map(_ => measureOneComputationExact(exact, queryRDD))
+    }
+    else {
+      exactTimeList = exactTimeList.map(_ => 0.0)
+    }
+
+
 
     val ground = exact.eval(queryRDD).cache()
 
     print(s"Starting Warm-up for query $queryN")
+    val constructionBuilder = constructorType match {
+      case "base" => () => new BaseConstruction(sqlContext, corpusRdd)
+      case "broadcast" => () => new BaseConstructionBroadcast(sqlContext, corpusRdd)
+    }
+
     doWarmUp(queryRDD, constructionBuilder)
 
     val timeList: IndexedSeq[Double] = 0.until(n).map(_ => measureOneComputation(queryRDD, constructionBuilder))
