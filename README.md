@@ -2,7 +2,7 @@
 
 This repo contains the solution of the Database System class @ EPFL, developed by me and [@manuleo](https://github.com/manuleo).
 
-We used Scala and Spark (using RDDs only, as Spark SQL and Spark DataFrame were not allowed). This project can be divided in 3 tasks:
+We used Scala and Spark (using RDDs only for the first 2 exercises, as Spark SQL and Spark DataFrame were not allowed). This project can be divided in 3 tasks:
 - [Implementation](src/main/scala/rollup) of the ROLLUP operator.
 - [Implementation](src/main/scala/thetajoin) of a MapReduce‑friendly theta‑join, according to the [1‑Bucket‑Theta Algorithm](https://dl.acm.org/doi/10.1145/1989323.1989423) by Okcan et al. with additional Reduce optimizations.
 - [Implementation](src/main/scala/lsh) of approximated kNNs via Jaccard-similarity locality sensitive hash functions.
